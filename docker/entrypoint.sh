@@ -50,7 +50,8 @@ ensure_sftp_config() {
     fi
 
     if [ -z "${SFTP_ROOTCAP:-}" ] || [ "$SFTP_ROOTCAP" = "auto" ]; then
-        if [ ! -f "$NODE_DIR/private/sftp.rootcap" ]; then
+        if [ ! -s "$NODE_DIR/private/sftp.rootcap" ]; then
+            rm -f "$NODE_DIR/private/sftp.rootcap"
             set_sftpd_enabled false
             tahoe run "$NODE_DIR" &
             TAHOE_PID=$!
@@ -69,7 +70,30 @@ ensure_sftp_config() {
                 exit 1
             fi
 
-            tahoe -d "$NODE_DIR" mkdir > "$NODE_DIR/private/sftp.rootcap"
+            for i in $(seq 1 60); do
+                if python - <<'PY'
+import sys
+from urllib.request import urlopen
+try:
+    urlopen("http://127.0.0.1:3456/", timeout=1).read(1)
+except Exception:
+    sys.exit(1)
+PY
+                then
+                    break
+                fi
+                sleep 1
+            done
+
+            tahoe -d "$NODE_DIR" mkdir > "$NODE_DIR/private/sftp.rootcap.tmp"
+            if [ ! -s "$NODE_DIR/private/sftp.rootcap.tmp" ]; then
+                kill "$TAHOE_PID" 2>/dev/null || true
+                wait "$TAHOE_PID" 2>/dev/null || true
+                rm -f "$NODE_DIR/private/sftp.rootcap.tmp"
+                echo "Unable to create SFTP rootcap: tahoe mkdir returned empty output" >&2
+                exit 1
+            fi
+            mv "$NODE_DIR/private/sftp.rootcap.tmp" "$NODE_DIR/private/sftp.rootcap"
             kill "$TAHOE_PID" 2>/dev/null || true
             wait "$TAHOE_PID" 2>/dev/null || true
             set_sftpd_enabled true
