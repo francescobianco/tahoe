@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-: "${TAHOE_BASE:?TAHOE_BASE non impostata}"
-: "${HEALTHCHECK_MAIL_TO:?HEALTHCHECK_MAIL_TO non impostata}"
+: "${TAHOE_BASE:?TAHOE_BASE was missing}"
+: "${HEALTHCHECK_MAIL_TO:?HEALTHCHECK_MAIL_TO was missing}"
 
 source "$TAHOE_BASE/venv/bin/activate"
 

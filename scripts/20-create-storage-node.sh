@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-: "${TAHOE_BASE:?TAHOE_BASE non impostata}"
-: "${TAHOE_NODE_NAME:?TAHOE_NODE_NAME non impostata}"
-: "${INTRODUCER_FURL:?INTRODUCER_FURL non impostata}"
+: "${TAHOE_BASE:?TAHOE_BASE was missing}"
+: "${TAHOE_NODE_NAME:?TAHOE_NODE_NAME was missing}"
+: "${INTRODUCER_FURL:?INTRODUCER_FURL was missing}"
 
 source "$TAHOE_BASE/venv/bin/activate"
 

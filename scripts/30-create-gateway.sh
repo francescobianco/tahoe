@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -e
 
-: "${TAHOE_BASE:?TAHOE_BASE non impostata}"
-: "${INTRODUCER_FURL:?INTRODUCER_FURL non impostata}"
-: "${SHARES_NEEDED:?SHARES_NEEDED non impostata}"
-: "${SHARES_TOTAL:?SHARES_TOTAL non impostata}"
-: "${SHARES_HAPPY:?SHARES_HAPPY non impostata}"
-: "${SFTP_PORT:?SFTP_PORT non impostata}"
+: "${TAHOE_BASE:?TAHOE_BASE was missing}"
+: "${INTRODUCER_FURL:?INTRODUCER_FURL was missing}"
+: "${SHARES_NEEDED:?SHARES_NEEDED was missing}"
+: "${SHARES_TOTAL:?SHARES_TOTAL was missing}"
+: "${SHARES_HAPPY:?SHARES_HAPPY was missing}"
+: "${SFTP_PORT:?SFTP_PORT was missing}"
 
 source "$TAHOE_BASE/venv/bin/activate"
 
