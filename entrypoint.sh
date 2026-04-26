@@ -7,7 +7,11 @@ NODE_DIR=/node
 case "$NODE_TYPE" in
     introducer)
         if [ ! -f "$NODE_DIR/tahoe-introducer.tac" ]; then
-            tahoe create-introducer --hostname="$INTRODUCER_HOSTNAME" "$NODE_DIR"
+            INTRODUCER_PORT="${INTRODUCER_PORT:-3458}"
+            tahoe create-introducer \
+                --port="tcp:${INTRODUCER_PORT}" \
+                --location="tcp:${INTRODUCER_HOSTNAME}:${INTRODUCER_PORT}" \
+                "$NODE_DIR"
         fi
         exec tahoe run "$NODE_DIR"
         ;;

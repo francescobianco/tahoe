@@ -10,6 +10,27 @@ set -e
 : "${SFTP_USER:?SFTP_USER was missing}"
 : "${SFTP_PASSWORD:?SFTP_PASSWORD was missing}"
 
-docker compose up -d node
+IMAGE="yafb/tahoe"
+CONTAINER="tahoe-node"
+DATA_DIR="${TAHOE_BASE:-/opt/tahoe}/data/node"
 
-echo "Nodo combinato (storage + SFTP gateway) avviato."
+mkdir -p "$DATA_DIR"
+
+docker rm -f "$CONTAINER" 2>/dev/null || true
+docker pull "$IMAGE"
+docker run -d \
+    --name "$CONTAINER" \
+    --restart unless-stopped \
+    -e INTRODUCER_FURL="$INTRODUCER_FURL" \
+    -e SHARES_NEEDED="$SHARES_NEEDED" \
+    -e SHARES_TOTAL="$SHARES_TOTAL" \
+    -e SHARES_HAPPY="$SHARES_HAPPY" \
+    -e STORAGE_RESERVED_SPACE="$STORAGE_RESERVED_SPACE" \
+    -e SFTP_PORT="$SFTP_PORT" \
+    -e SFTP_USER="$SFTP_USER" \
+    -e SFTP_PASSWORD="$SFTP_PASSWORD" \
+    -v "$DATA_DIR:/node" \
+    -p "${SFTP_PORT}:${SFTP_PORT}" \
+    "$IMAGE" node
+
+echo "Nodo combinato (storage + SFTP gateway) avviato: $CONTAINER"

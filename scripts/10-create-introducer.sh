@@ -3,7 +3,12 @@ set -e
 
 : "${INTRODUCER_HOSTNAME:?INTRODUCER_HOSTNAME was missing}"
 
-FURL_FILE="${TAHOE_BASE:-/opt/tahoe}/data/introducer/private/introducer.furl"
+IMAGE="yafb/tahoe"
+CONTAINER="tahoe-introducer"
+DATA_DIR="${TAHOE_BASE:-/opt/tahoe}/data/introducer"
+FURL_FILE="$DATA_DIR/private/introducer.furl"
+
+mkdir -p "$DATA_DIR"
 
 if [ -f "$FURL_FILE" ]; then
     echo "Introducer gia avviato. FURL:"
@@ -11,7 +16,15 @@ if [ -f "$FURL_FILE" ]; then
     exit 0
 fi
 
-docker compose up -d introducer
+docker rm -f "$CONTAINER" 2>/dev/null || true
+docker pull "$IMAGE"
+docker run -d \
+    --name "$CONTAINER" \
+    --restart unless-stopped \
+    -e INTRODUCER_HOSTNAME="$INTRODUCER_HOSTNAME" \
+    -v "$DATA_DIR:/node" \
+    -p 3458:3458 \
+    "$IMAGE" introducer
 
 echo "Attendo generazione FURL..."
 for i in $(seq 1 30); do
@@ -21,7 +34,7 @@ done
 
 if [ ! -f "$FURL_FILE" ]; then
     echo "Errore: FURL non generato dopo 30 secondi."
-    docker compose logs introducer
+    docker logs "$CONTAINER"
     exit 1
 fi
 
