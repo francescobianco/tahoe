@@ -18,7 +18,11 @@ case "$NODE_TYPE" in
 
     node)
         if [ ! -f "$NODE_DIR/tahoe.cfg" ]; then
-            tahoe create-node "$NODE_DIR"
+            NODE_PORT="${NODE_PORT:-3457}"
+            tahoe create-node \
+                --port="tcp:${NODE_PORT}" \
+                --location="tcp:${INTRODUCER_HOSTNAME}:${NODE_PORT}" \
+                "$NODE_DIR"
             cat >> "$NODE_DIR/tahoe.cfg" <<EOF
 
 [client]

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
+: "${INTRODUCER_HOSTNAME:?INTRODUCER_HOSTNAME was missing}"
 : "${INTRODUCER_FURL:?INTRODUCER_FURL was missing}"
 : "${SHARES_NEEDED:?SHARES_NEEDED was missing}"
 : "${SHARES_TOTAL:?SHARES_TOTAL was missing}"
@@ -13,6 +14,7 @@ set -e
 IMAGE="yafb/tahoe"
 CONTAINER="tahoe-node"
 DATA_DIR="${TAHOE_BASE:-/opt/tahoe}/data/node"
+NODE_PORT="${NODE_PORT:-3457}"
 
 mkdir -p "$DATA_DIR"
 
@@ -21,7 +23,9 @@ docker pull "$IMAGE"
 docker run -d \
     --name "$CONTAINER" \
     --restart unless-stopped \
+    -e INTRODUCER_HOSTNAME="$INTRODUCER_HOSTNAME" \
     -e INTRODUCER_FURL="$INTRODUCER_FURL" \
+    -e NODE_PORT="$NODE_PORT" \
     -e SHARES_NEEDED="$SHARES_NEEDED" \
     -e SHARES_TOTAL="$SHARES_TOTAL" \
     -e SHARES_HAPPY="$SHARES_HAPPY" \
@@ -30,6 +34,7 @@ docker run -d \
     -e SFTP_USER="$SFTP_USER" \
     -e SFTP_PASSWORD="$SFTP_PASSWORD" \
     -v "$DATA_DIR:/node" \
+    -p "${NODE_PORT}:${NODE_PORT}" \
     -p "${SFTP_PORT}:${SFTP_PORT}" \
     "$IMAGE" node
 
