@@ -13,7 +13,7 @@ set -e
 # @file_type: build-entrypoint
 # @build_type: bin
 # @build_with: Mush v0.2.0 (2026-03-21 develop)
-# @build_date: 2026-04-26T19:40:24Z
+# @build_date: 2026-04-26T20:31:46Z
 
 # @section_code: SC005
 # @section_name: functions
@@ -36,6 +36,7 @@ module runner
 module remote
 module dispatch
 module test
+module init
 module cli
 
 main() {
@@ -66,6 +67,9 @@ tahoe_build_env_inject() {
   local line
   local key
   local val
+  local sftp_private_key
+  local has_sftp_public_key
+  has_sftp_public_key=0
 
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|\#*) continue ;; esac
@@ -82,8 +86,26 @@ tahoe_build_env_inject() {
       \'*\') val="${val#\'}"; val="${val%\'}" ;;
     esac
 
+    if [ "$key" = "SFTP_PRIVATE_KEY" ]; then
+      sftp_private_key="$val"
+    fi
+    if [ "$key" = "SFTP_PUBLIC_KEY" ]; then
+      has_sftp_public_key=1
+    fi
+
     printf 'declare %s=%q\n' "$key" "$val"
   done < "$env_file"
+
+  if [ "$has_sftp_public_key" -eq 0 ] && [ -n "$sftp_private_key" ]; then
+    if [ ! -f "$sftp_private_key" ]; then
+      echo "tahoe: SFTP_PRIVATE_KEY not found: $sftp_private_key" >&2
+      return 1
+    fi
+    tahoe_require_command ssh-keygen || return 1
+    local public_key
+    public_key=$(ssh-keygen -y -f "$sftp_private_key")
+    printf 'declare SFTP_PUBLIC_KEY=%q\n' "$public_key"
+  fi
 }
 
 tahoe_parse_env_file() {
@@ -106,7 +128,7 @@ tahoe_parse_env_file() {
     return 1
   fi
 
-  printf '%s\n' ".env"
+  printf '%s\n' ".tahoe"
 }
 
 tahoe_parse_logs_env_file() {
@@ -434,7 +456,7 @@ set -e
 : "${SHARES_HAPPY:?SHARES_HAPPY was missing}"
 : "${SFTP_PORT:?SFTP_PORT was missing}"
 : "${SFTP_USER:?SFTP_USER was missing}"
-: "${SFTP_PASSWORD:?SFTP_PASSWORD was missing}"
+: "${SFTP_PUBLIC_KEY:?SFTP_PUBLIC_KEY was missing; set it or set SFTP_PRIVATE_KEY locally}"
 
 IMAGE="${TAHOE_IMAGE:-yafb/tahoe}"
 CONTAINER="${TAHOE_GATEWAY_CONTAINER:-tahoe-gateway}"
@@ -457,7 +479,8 @@ docker run -d \
   -e SHARES_HAPPY="$SHARES_HAPPY" \
   -e SFTP_PORT="$SFTP_PORT" \
   -e SFTP_USER="$SFTP_USER" \
-  -e SFTP_PASSWORD="$SFTP_PASSWORD" \
+  -e SFTP_PUBLIC_KEY="$SFTP_PUBLIC_KEY" \
+  -e SFTP_ROOTCAP="${SFTP_ROOTCAP:-auto}" \
   -v "$DATA_DIR:/node" \
   -p "${GATEWAY_PORT}:${GATEWAY_PORT}" \
   -p "${SFTP_PORT}:${SFTP_PORT}" \
@@ -562,9 +585,8 @@ tahoe_gateway_test() {
 
   : "${SFTP_PORT:?SFTP_PORT was missing}"
   : "${SFTP_USER:?SFTP_USER was missing}"
-  : "${SFTP_PASSWORD:?SFTP_PASSWORD was missing}"
+  : "${SFTP_PRIVATE_KEY:?SFTP_PRIVATE_KEY was missing}"
 
-  tahoe_require_command sshpass || return 1
   tahoe_require_command sftp || return 1
   tahoe_require_command sha256sum || return 1
   tahoe_require_command dd || return 1
@@ -586,8 +608,9 @@ tahoe_gateway_test() {
   dd if=/dev/urandom of="$local_file" bs=1M count="$size_mb" status=none
 
   echo "Uploading ${size_mb}MiB to ${SFTP_USER}@${gateway_host}:${SFTP_PORT}/${remote_file}"
-  sshpass -p "$SFTP_PASSWORD" sftp \
+  sftp \
     -P "$SFTP_PORT" \
+    -i "$SFTP_PRIVATE_KEY" \
     -o StrictHostKeyChecking=no \
     -o BatchMode=no \
     -b - \
@@ -616,11 +639,70 @@ EOF
 # @section_code: SC007
 # @section_name: source
 # @source_index: 8
+# @source_file: src/init.sh
+# @portion_type: module
+tahoe_init() {
+  local env_file
+  env_file=".tahoe"
+  local private_key
+  private_key=".tahoe.pem"
+  local public_key_file
+  public_key_file=".tahoe.key"
+
+  if [ -e "$env_file" ] || [ -e "$private_key" ] || [ -e "$public_key_file" ]; then
+    echo "tahoe: init refused to overwrite existing .tahoe files" >&2
+    echo "tahoe: remove .tahoe, .tahoe.pem and .tahoe.key if you want to reinitialize" >&2
+    return 1
+  fi
+
+  tahoe_require_command ssh-keygen || return 1
+
+  ssh-keygen -q -t ed25519 -N "" -f "$private_key" -C "tahoe-local"
+  mv "${private_key}.pub" "$public_key_file"
+  chmod 600 "$private_key"
+  chmod 644 "$public_key_file"
+
+  local public_key
+  public_key=$(cat "$public_key_file")
+  cat > "$env_file" <<EOF
+TAHOE_BASE="/opt/tahoe"
+TAHOE_IMAGE="yafb/tahoe"
+
+INTRODUCER_HOSTNAME="your.server.hostname.or.ip"
+INTRODUCER_PORT=3458
+NODE_PORT=3457
+GATEWAY_PORT=3459
+INTRODUCER_FURL="PASTE_HERE"
+
+SHARES_NEEDED=1
+SHARES_TOTAL=1
+SHARES_HAPPY=1
+
+STORAGE_RESERVED_SPACE=10G
+
+SFTP_HOST="your.server.hostname.or.ip"
+SFTP_PORT=8022
+SFTP_USER="user"
+SFTP_PRIVATE_KEY="$private_key"
+SFTP_PUBLIC_KEY="$public_key"
+SFTP_ROOTCAP="auto"
+TAHOE_TEST_SIZE_MB=1
+EOF
+
+  echo "Created $env_file"
+  echo "Created $private_key"
+  echo "Created $public_key_file"
+}
+
+# @section_code: SC007
+# @section_name: source
+# @source_index: 9
 # @source_file: src/cli.sh
 # @portion_type: module
 tahoe_usage() {
   cat >&2 <<'EOF'
 Usage:
+  tahoe init
   tahoe introducer <host> [--env-file <file>]
   tahoe node <host> [--env-file <file>]
   tahoe gateway <host> [--env-file <file>]
@@ -631,6 +713,7 @@ Usage:
   tahoe hosts
 
 Commands:
+  init        Create .tahoe, .tahoe.pem and .tahoe.key locally
   introducer  Run a Tahoe introducer container on the selected host
   node        Run a storage-only Tahoe node container on the selected host
   gateway     Run an SFTP gateway container on the selected host
@@ -649,6 +732,15 @@ tahoe_cli_main() {
       ;;
     hosts|--list)
       tahoe_hosts_list
+      return $?
+      ;;
+    init)
+      if [ -n "$2" ]; then
+        echo "tahoe: unexpected argument: $2" >&2
+        tahoe_usage
+        return 1
+      fi
+      tahoe_init
       return $?
       ;;
     introducer|node|gateway)
