@@ -4,6 +4,104 @@ set -e
 NODE_TYPE=$1
 NODE_DIR=/node
 
+set_sftpd_enabled() {
+    VALUE="$1"
+    python - "$NODE_DIR/tahoe.cfg" "$VALUE" <<'PY'
+import sys
+
+path, value = sys.argv[1], sys.argv[2]
+lines = open(path).read().splitlines()
+out = []
+in_sftpd = False
+done = False
+
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        if in_sftpd and not done:
+            out.append(f"enabled = {value}")
+            done = True
+        in_sftpd = stripped == "[sftpd]"
+        out.append(line)
+        continue
+
+    if in_sftpd and stripped.startswith("enabled"):
+        out.append(f"enabled = {value}")
+        done = True
+        continue
+
+    out.append(line)
+
+if in_sftpd and not done:
+    out.append(f"enabled = {value}")
+
+open(path, "w").write("\n".join(out) + "\n")
+PY
+}
+
+ensure_sftp_config() {
+    : "${SFTP_USER:?SFTP_USER was missing}"
+    : "${SFTP_PUBLIC_KEY:?SFTP_PUBLIC_KEY was missing}"
+
+    mkdir -p "$NODE_DIR/private"
+
+    if [ ! -f "$NODE_DIR/private/ssh_host_rsa_key" ]; then
+        ssh-keygen -q -t rsa -N "" -f "$NODE_DIR/private/ssh_host_rsa_key"
+    fi
+
+    if [ -z "${SFTP_ROOTCAP:-}" ] || [ "$SFTP_ROOTCAP" = "auto" ]; then
+        if [ ! -f "$NODE_DIR/private/sftp.rootcap" ]; then
+            set_sftpd_enabled false
+            tahoe run "$NODE_DIR" &
+            TAHOE_PID=$!
+
+            for i in $(seq 1 60); do
+                if [ -f "$NODE_DIR/node.url" ]; then
+                    break
+                fi
+                sleep 1
+            done
+
+            if [ ! -f "$NODE_DIR/node.url" ]; then
+                kill "$TAHOE_PID" 2>/dev/null || true
+                wait "$TAHOE_PID" 2>/dev/null || true
+                echo "Unable to create SFTP rootcap: node.url was not created" >&2
+                exit 1
+            fi
+
+            tahoe -d "$NODE_DIR" mkdir > "$NODE_DIR/private/sftp.rootcap"
+            kill "$TAHOE_PID" 2>/dev/null || true
+            wait "$TAHOE_PID" 2>/dev/null || true
+            set_sftpd_enabled true
+        fi
+        SFTP_ROOTCAP=$(cat "$NODE_DIR/private/sftp.rootcap")
+    fi
+
+    echo "$SFTP_USER $SFTP_PUBLIC_KEY $SFTP_ROOTCAP" > "$NODE_DIR/private/accounts"
+
+    if ! grep -q '^\[sftpd\]' "$NODE_DIR/tahoe.cfg"; then
+        cat >> "$NODE_DIR/tahoe.cfg" <<EOF
+
+[sftpd]
+enabled = true
+port = tcp:$SFTP_PORT:interface=0.0.0.0
+accounts.file = private/accounts
+EOF
+    fi
+
+    if ! grep -q '^host_pubkey_file =' "$NODE_DIR/tahoe.cfg"; then
+        cat >> "$NODE_DIR/tahoe.cfg" <<EOF
+host_pubkey_file = private/ssh_host_rsa_key.pub
+EOF
+    fi
+
+    if ! grep -q '^host_privkey_file =' "$NODE_DIR/tahoe.cfg"; then
+        cat >> "$NODE_DIR/tahoe.cfg" <<EOF
+host_privkey_file = private/ssh_host_rsa_key
+EOF
+    fi
+}
+
 case "$NODE_TYPE" in
     introducer)
         if [ ! -f "$NODE_DIR/tahoe-introducer.tac" ]; then
@@ -64,9 +162,8 @@ enabled = true
 port = tcp:$SFTP_PORT:interface=0.0.0.0
 accounts.file = private/accounts
 EOF
-            mkdir -p "$NODE_DIR/private"
-            echo "$SFTP_USER:$SFTP_PASSWORD:root" > "$NODE_DIR/private/accounts"
         fi
+        ensure_sftp_config
         exec tahoe run "$NODE_DIR"
         ;;
 
@@ -95,9 +192,8 @@ enabled = true
 port = tcp:$SFTP_PORT:interface=0.0.0.0
 accounts.file = private/accounts
 EOF
-            mkdir -p "$NODE_DIR/private"
-            echo "$SFTP_USER:$SFTP_PASSWORD:root" > "$NODE_DIR/private/accounts"
         fi
+        ensure_sftp_config
         exec tahoe run "$NODE_DIR"
         ;;
 

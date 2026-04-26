@@ -1,6 +1,7 @@
 tahoe_usage() {
   cat >&2 <<'EOF'
 Usage:
+  tahoe init
   tahoe introducer <host> [--env-file <file>]
   tahoe node <host> [--env-file <file>]
   tahoe gateway <host> [--env-file <file>]
@@ -11,6 +12,7 @@ Usage:
   tahoe hosts
 
 Commands:
+  init        Create .tahoe, .tahoe.pem and .tahoe.key locally
   introducer  Run a Tahoe introducer container on the selected host
   node        Run a storage-only Tahoe node container on the selected host
   gateway     Run an SFTP gateway container on the selected host
@@ -29,6 +31,15 @@ tahoe_cli_main() {
       ;;
     hosts|--list)
       tahoe_hosts_list
+      return $?
+      ;;
+    init)
+      if [ -n "$2" ]; then
+        echo "tahoe: unexpected argument: $2" >&2
+        tahoe_usage
+        return 1
+      fi
+      tahoe_init
       return $?
       ;;
     introducer|node|gateway)

@@ -94,7 +94,7 @@ set -e
 : "${SHARES_HAPPY:?SHARES_HAPPY was missing}"
 : "${SFTP_PORT:?SFTP_PORT was missing}"
 : "${SFTP_USER:?SFTP_USER was missing}"
-: "${SFTP_PASSWORD:?SFTP_PASSWORD was missing}"
+: "${SFTP_PUBLIC_KEY:?SFTP_PUBLIC_KEY was missing; set it or set SFTP_PRIVATE_KEY locally}"
 
 IMAGE="${TAHOE_IMAGE:-yafb/tahoe}"
 CONTAINER="${TAHOE_GATEWAY_CONTAINER:-tahoe-gateway}"
@@ -117,7 +117,8 @@ docker run -d \
   -e SHARES_HAPPY="$SHARES_HAPPY" \
   -e SFTP_PORT="$SFTP_PORT" \
   -e SFTP_USER="$SFTP_USER" \
-  -e SFTP_PASSWORD="$SFTP_PASSWORD" \
+  -e SFTP_PUBLIC_KEY="$SFTP_PUBLIC_KEY" \
+  -e SFTP_ROOTCAP="${SFTP_ROOTCAP:-auto}" \
   -v "$DATA_DIR:/node" \
   -p "${GATEWAY_PORT}:${GATEWAY_PORT}" \
   -p "${SFTP_PORT}:${SFTP_PORT}" \

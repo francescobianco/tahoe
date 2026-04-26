@@ -13,3 +13,6 @@ accounts
 *.pem
 *.secret
 .env
+.tahoe
+.tahoe.key
+.tahoe.pem

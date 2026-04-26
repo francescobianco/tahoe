@@ -20,9 +20,8 @@ tahoe_gateway_test() {
 
   : "${SFTP_PORT:?SFTP_PORT was missing}"
   : "${SFTP_USER:?SFTP_USER was missing}"
-  : "${SFTP_PASSWORD:?SFTP_PASSWORD was missing}"
+  : "${SFTP_PRIVATE_KEY:?SFTP_PRIVATE_KEY was missing}"
 
-  tahoe_require_command sshpass || return 1
   tahoe_require_command sftp || return 1
   tahoe_require_command sha256sum || return 1
   tahoe_require_command dd || return 1
@@ -44,8 +43,9 @@ tahoe_gateway_test() {
   dd if=/dev/urandom of="$local_file" bs=1M count="$size_mb" status=none
 
   echo "Uploading ${size_mb}MiB to ${SFTP_USER}@${gateway_host}:${SFTP_PORT}/${remote_file}"
-  sshpass -p "$SFTP_PASSWORD" sftp \
+  sftp \
     -P "$SFTP_PORT" \
+    -i "$SFTP_PRIVATE_KEY" \
     -o StrictHostKeyChecking=no \
     -o BatchMode=no \
     -b - \

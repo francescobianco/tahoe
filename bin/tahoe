@@ -13,7 +13,7 @@ set -e
 # @file_type: build-entrypoint
 # @build_type: bin
 # @build_with: Mush v0.2.0 (2026-03-21 develop)
-# @build_date: 2026-04-26T19:24:53Z
+# @build_date: 2026-04-26T19:40:24Z
 
 # @section_code: SC005
 # @section_name: functions
@@ -30,107 +30,23 @@ inject() { return 0; }
 # @source_index: 1
 # @source_file: src/main.sh
 # @portion_type: entrypoint
-tahoe_usage() {
-  cat >&2 <<'EOF'
-Usage:
-  tahoe introducer <host> [--env-file <file>]
-  tahoe node <host> [--env-file <file>]
-  tahoe gateway <host> [--env-file <file>]
-  tahoe introducer <host> --logs [--env-file <file>]
-  tahoe node <host> --logs [--env-file <file>]
-  tahoe gateway <host> --logs [--env-file <file>]
-  tahoe hosts
+module env
+module hosts
+module runner
+module remote
+module dispatch
+module test
+module cli
 
-Commands:
-  introducer  Run a Tahoe introducer container on the selected host
-  node        Run a storage-only Tahoe node container on the selected host
-  gateway     Run an SFTP gateway container on the selected host
-  hosts       List hosts from ~/.hosts
-EOF
+main() {
+  tahoe_cli_main "$@"
 }
 
-tahoe_require_command() {
-  local command_name
-  command_name="$1"
-
-  if ! command -v "$command_name" >/dev/null 2>&1; then
-    echo "tahoe: required command not found: $command_name" >&2
-    return 1
-  fi
-}
-
-tahoe_hosts_get_field() {
-  local line
-  line="$1"
-  local field
-  field="$2"
-  local pair
-  local key
-  local val
-
-  for pair in $line; do
-    key="${pair%%=*}"
-    val="${pair#*=}"
-    if [ "$key" = "$field" ]; then
-      printf '%s\n' "$val"
-      return 0
-    fi
-  done
-
-  return 1
-}
-
-tahoe_hosts_parse() {
-  local hosts_file
-  hosts_file="${HOME}/.hosts"
-
-  if [ ! -f "$hosts_file" ]; then
-    echo "tahoe: hosts file not found: $hosts_file" >&2
-    return 1
-  fi
-
-  awk '/\\$/ { sub(/\\$/, ""); printf "%s", $0; next } 1' "$hosts_file"
-}
-
-tahoe_hosts_list() {
-  local line
-
-  while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    case "$line" in \#*) continue ;; esac
-
-    local name
-    name=$(tahoe_hosts_get_field "$line" "name" || true)
-    local host
-    host=$(tahoe_hosts_get_field "$line" "host" || true)
-    local user
-    user=$(tahoe_hosts_get_field "$line" "user" || true)
-
-    [ -n "$name" ] && printf "%-20s %s\n" "$name" "${user:+${user}@}${host}"
-  done < <(tahoe_hosts_parse)
-}
-
-tahoe_hosts_find() {
-  local host_name
-  host_name="$1"
-  local line
-
-  while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    case "$line" in \#*) continue ;; esac
-
-    local entry_name
-    entry_name=$(tahoe_hosts_get_field "$line" "name" || true)
-    if [ "$entry_name" = "$host_name" ]; then
-      printf '%s\n' "$line"
-      return 0
-    fi
-  done < <(tahoe_hosts_parse)
-
-  echo "tahoe: host not found: $host_name" >&2
-  return 1
-}
-
+# @section_code: SC007
+# @section_name: source
+# @source_index: 2
+# @source_file: src/env.sh
+# @portion_type: module
 tahoe_is_identifier() {
   local name
   name="$1"
@@ -142,21 +58,6 @@ tahoe_is_identifier() {
   esac
 
   return 0
-}
-
-tahoe_build_host_inject() {
-  local host_line
-  host_line="$1"
-  local pair
-  local key
-  local val
-
-  for pair in $host_line; do
-    key="${pair%%=*}"
-    val="${pair#*=}"
-    tahoe_is_identifier "$key" || continue
-    printf 'declare tahoe_%s=%q\n' "$key" "$val"
-  done
 }
 
 tahoe_build_env_inject() {
@@ -221,6 +122,147 @@ tahoe_parse_logs_env_file() {
   fi
 
   tahoe_parse_env_file "$second_arg" "$third_arg"
+}
+
+tahoe_parse_test_env_file() {
+  local first_arg
+  first_arg="$1"
+  local second_arg
+  second_arg="$2"
+  local third_arg
+  third_arg="$3"
+
+  if [ "$first_arg" != "--test" ]; then
+    return 1
+  fi
+
+  tahoe_parse_env_file "$second_arg" "$third_arg"
+}
+
+tahoe_load_env_file() {
+  local env_file
+  env_file="$1"
+
+  if [ ! -f "$env_file" ]; then
+    echo "tahoe: env file not found: $env_file" >&2
+    return 1
+  fi
+
+  set -a
+  . "$env_file"
+  set +a
+}
+
+# @section_code: SC007
+# @section_name: source
+# @source_index: 3
+# @source_file: src/hosts.sh
+# @portion_type: module
+tahoe_hosts_get_field() {
+  local line
+  line="$1"
+  local field
+  field="$2"
+  local pair
+  local key
+  local val
+
+  for pair in $line; do
+    key="${pair%%=*}"
+    val="${pair#*=}"
+    if [ "$key" = "$field" ]; then
+      printf '%s\n' "$val"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+tahoe_hosts_parse() {
+  local hosts_file
+  hosts_file="${HOME}/.hosts"
+
+  if [ ! -f "$hosts_file" ]; then
+    echo "tahoe: hosts file not found: $hosts_file" >&2
+    return 1
+  fi
+
+  awk '/\\$/ { sub(/\\$/, ""); printf "%s", $0; next } 1' "$hosts_file"
+}
+
+tahoe_hosts_list() {
+  local line
+
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in \#*) continue ;; esac
+
+    local name
+    name=$(tahoe_hosts_get_field "$line" "name" || true)
+    local host
+    host=$(tahoe_hosts_get_field "$line" "host" || true)
+    local user
+    user=$(tahoe_hosts_get_field "$line" "user" || true)
+
+    [ -n "$name" ] && printf "%-20s %s\n" "$name" "${user:+${user}@}${host}"
+  done < <(tahoe_hosts_parse)
+}
+
+tahoe_hosts_find() {
+  local host_name
+  host_name="$1"
+  local line
+
+  if [ "$host_name" = "local" ]; then
+    printf '%s\n' "name=local host=0.0.0.0 user=${USER}"
+    return 0
+  fi
+
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "$line" in \#*) continue ;; esac
+
+    local entry_name
+    entry_name=$(tahoe_hosts_get_field "$line" "name" || true)
+    if [ "$entry_name" = "$host_name" ]; then
+      printf '%s\n' "$line"
+      return 0
+    fi
+  done < <(tahoe_hosts_parse)
+
+  echo "tahoe: host not found: $host_name" >&2
+  return 1
+}
+
+tahoe_build_host_inject() {
+  local host_line
+  host_line="$1"
+  local pair
+  local key
+  local val
+
+  for pair in $host_line; do
+    key="${pair%%=*}"
+    val="${pair#*=}"
+    tahoe_is_identifier "$key" || continue
+    printf 'declare tahoe_%s=%q\n' "$key" "$val"
+  done
+}
+
+# @section_code: SC007
+# @section_name: source
+# @source_index: 4
+# @source_file: src/runner.sh
+# @portion_type: module
+tahoe_require_command() {
+  local command_name
+  command_name="$1"
+
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "tahoe: required command not found: $command_name" >&2
+    return 1
+  fi
 }
 
 tahoe_runner_exec() {
@@ -291,6 +333,11 @@ tahoe_run_host() {
   tahoe_runner_exec "$host_line" "$script_file" "$env_file"
 }
 
+# @section_code: SC007
+# @section_name: source
+# @source_index: 5
+# @source_file: src/remote.sh
+# @portion_type: module
 tahoe_remote_introducer() {
   cat <<'EOF'
 set -e
@@ -456,6 +503,11 @@ docker logs "$CONTAINER"
 EOF
 }
 
+# @section_code: SC007
+# @section_name: source
+# @source_index: 6
+# @source_file: src/dispatch.sh
+# @portion_type: module
 tahoe_with_remote_script() {
   local command_name
   command_name="$1"
@@ -483,7 +535,110 @@ tahoe_with_remote_script() {
   return "$exit_code"
 }
 
-main() {
+# @section_code: SC007
+# @section_name: source
+# @source_index: 7
+# @source_file: src/test.sh
+# @portion_type: module
+tahoe_gateway_test() {
+  local host_name
+  host_name="$1"
+  local env_file
+  env_file="$2"
+
+  tahoe_load_env_file "$env_file" || return 1
+
+  local host_line
+  host_line=$(tahoe_hosts_find "$host_name") || return 1
+
+  local gateway_host
+  gateway_host="${SFTP_HOST:-}"
+  if [ -z "$gateway_host" ]; then
+    gateway_host=$(tahoe_hosts_get_field "$host_line" "host" || true)
+  fi
+  if [ "$gateway_host" = "0.0.0.0" ] || [ "$host_name" = "local" ]; then
+    gateway_host="127.0.0.1"
+  fi
+
+  : "${SFTP_PORT:?SFTP_PORT was missing}"
+  : "${SFTP_USER:?SFTP_USER was missing}"
+  : "${SFTP_PASSWORD:?SFTP_PASSWORD was missing}"
+
+  tahoe_require_command sshpass || return 1
+  tahoe_require_command sftp || return 1
+  tahoe_require_command sha256sum || return 1
+  tahoe_require_command dd || return 1
+  tahoe_require_command mktemp || return 1
+
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  local local_file
+  local_file="$tmp_dir/upload.bin"
+  local downloaded_file
+  downloaded_file="$tmp_dir/download.bin"
+  local remote_dir
+  remote_dir="tahoe-test"
+  local remote_file
+  remote_file="${remote_dir}/test-$(date +%s)-$$.bin"
+  local size_mb
+  size_mb="${TAHOE_TEST_SIZE_MB:-1}"
+
+  dd if=/dev/urandom of="$local_file" bs=1M count="$size_mb" status=none
+
+  echo "Uploading ${size_mb}MiB to ${SFTP_USER}@${gateway_host}:${SFTP_PORT}/${remote_file}"
+  sshpass -p "$SFTP_PASSWORD" sftp \
+    -P "$SFTP_PORT" \
+    -o StrictHostKeyChecking=no \
+    -o BatchMode=no \
+    -b - \
+    "$SFTP_USER@$gateway_host" <<EOF
+-mkdir $remote_dir
+put $local_file $remote_file
+get $remote_file $downloaded_file
+rm $remote_file
+EOF
+
+  local source_hash
+  source_hash=$(sha256sum "$local_file" | cut -d' ' -f1)
+  local downloaded_hash
+  downloaded_hash=$(sha256sum "$downloaded_file" | cut -d' ' -f1)
+
+  rm -rf "$tmp_dir"
+
+  if [ "$source_hash" != "$downloaded_hash" ]; then
+    echo "tahoe: gateway upload test failed: hash mismatch" >&2
+    return 1
+  fi
+
+  echo "Gateway upload test OK: $source_hash"
+}
+
+# @section_code: SC007
+# @section_name: source
+# @source_index: 8
+# @source_file: src/cli.sh
+# @portion_type: module
+tahoe_usage() {
+  cat >&2 <<'EOF'
+Usage:
+  tahoe introducer <host> [--env-file <file>]
+  tahoe node <host> [--env-file <file>]
+  tahoe gateway <host> [--env-file <file>]
+  tahoe introducer <host> --logs [--env-file <file>]
+  tahoe node <host> --logs [--env-file <file>]
+  tahoe gateway <host> --logs [--env-file <file>]
+  tahoe gateway <host> --test [--env-file <file>]
+  tahoe hosts
+
+Commands:
+  introducer  Run a Tahoe introducer container on the selected host
+  node        Run a storage-only Tahoe node container on the selected host
+  gateway     Run an SFTP gateway container on the selected host
+  hosts       List hosts from ~/.hosts
+EOF
+}
+
+tahoe_cli_main() {
   local command_name
   command_name="$1"
 
@@ -506,7 +661,9 @@ main() {
       fi
 
       local env_file
-      if env_file=$(tahoe_parse_logs_env_file "$3" "$4" "$5"); then
+      if [ "$command_name" = "gateway" ] && env_file=$(tahoe_parse_test_env_file "$3" "$4" "$5"); then
+        tahoe_gateway_test "$host_name" "$env_file"
+      elif env_file=$(tahoe_parse_logs_env_file "$3" "$4" "$5"); then
         tahoe_with_remote_script "${command_name}-logs" "$host_name" "$env_file"
       else
         env_file=$(tahoe_parse_env_file "$3" "$4") || return 1
