@@ -165,6 +165,7 @@ case "$NODE_TYPE" in
                 --location="tcp:${INTRODUCER_HOSTNAME}:${INTRODUCER_PORT}" \
                 "$NODE_DIR"
         fi
+        rm -f "$NODE_DIR/running.process"
         exec tahoe run --allow-stdin-close "$NODE_DIR"
         ;;
 
@@ -180,6 +181,7 @@ case "$NODE_TYPE" in
                 "$INTRODUCER_FURL" "$SHARES_NEEDED" "$SHARES_TOTAL" "$SHARES_HAPPY" \
                 "true" "$STORAGE_RESERVED_SPACE"
         fi
+        rm -f "$NODE_DIR/running.process"
         exec tahoe run --allow-stdin-close "$NODE_DIR"
         ;;
 
@@ -196,6 +198,7 @@ case "$NODE_TYPE" in
                 "false"
         fi
         ensure_sftp_config
+        rm -f "$NODE_DIR/running.process"
         exec tahoe run --allow-stdin-close "$NODE_DIR"
         ;;
 
@@ -212,6 +215,7 @@ case "$NODE_TYPE" in
                 "true" "$STORAGE_RESERVED_SPACE"
         fi
         ensure_sftp_config
+        rm -f "$NODE_DIR/running.process"
         exec tahoe run --allow-stdin-close "$NODE_DIR"
         ;;
 
