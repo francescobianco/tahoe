@@ -66,10 +66,10 @@ tahoe node tahoe-1 --env-file ./prod.env
 ## Logs remoti
 
 ```bash
-tahoe inspector tahoe-1 --logs
+tahoe introducer tahoe-1 --logs
+tahoe node tahoe-1 --logs
+tahoe gateway tahoe-1 --logs
 ```
-
-Se vuoi puntare un container specifico, imposta `TAHOE_LOGS_CONTAINER` nel file `.env`.
 
 ## Accesso
 

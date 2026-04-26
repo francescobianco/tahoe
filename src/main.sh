@@ -4,14 +4,15 @@ Usage:
   tahoe introducer <host> [--env-file <file>]
   tahoe node <host> [--env-file <file>]
   tahoe gateway <host> [--env-file <file>]
-  tahoe inspector <host> --logs [--env-file <file>]
+  tahoe introducer <host> --logs [--env-file <file>]
+  tahoe node <host> --logs [--env-file <file>]
+  tahoe gateway <host> --logs [--env-file <file>]
   tahoe hosts
 
 Commands:
   introducer  Run a Tahoe introducer container on the selected host
   node        Run a storage-only Tahoe node container on the selected host
   gateway     Run an SFTP gateway container on the selected host
-  inspector   Inspect remote Tahoe containers
   hosts       List hosts from ~/.hosts
 EOF
 }
@@ -173,6 +174,21 @@ tahoe_parse_env_file() {
   fi
 
   printf '%s\n' ".env"
+}
+
+tahoe_parse_logs_env_file() {
+  local first_arg
+  first_arg="$1"
+  local second_arg
+  second_arg="$2"
+  local third_arg
+  third_arg="$3"
+
+  if [ "$first_arg" != "--logs" ]; then
+    return 1
+  fi
+
+  tahoe_parse_env_file "$second_arg" "$third_arg"
 }
 
 tahoe_runner_exec() {
@@ -372,33 +388,39 @@ echo "Gateway started on $tahoe_name: $CONTAINER"
 EOF
 }
 
-tahoe_remote_inspector_logs() {
+tahoe_remote_logs() {
+  local role
+  role="$1"
+
   cat <<'EOF'
 set -e
+EOF
 
-if [ -n "${TAHOE_LOGS_CONTAINER:-}" ]; then
-  docker logs "$TAHOE_LOGS_CONTAINER"
-  exit $?
-fi
+  case "$role" in
+    introducer)
+      cat <<'EOF'
+CONTAINER="${TAHOE_INTRODUCER_CONTAINER:-tahoe-introducer}"
+EOF
+      ;;
+    node)
+      cat <<'EOF'
+CONTAINER="${TAHOE_NODE_CONTAINER:-tahoe-node}"
+EOF
+      ;;
+    gateway)
+      cat <<'EOF'
+CONTAINER="${TAHOE_GATEWAY_CONTAINER:-tahoe-gateway}"
+EOF
+      ;;
+  esac
 
-found=0
-for container in \
-  "${TAHOE_INTRODUCER_CONTAINER:-tahoe-introducer}" \
-  "${TAHOE_NODE_CONTAINER:-tahoe-node}" \
-  "${TAHOE_GATEWAY_CONTAINER:-tahoe-gateway}" \
-  "${TAHOE_INSPECTOR_CONTAINER:-tahoe-inspector}"
-do
-  if docker inspect "$container" >/dev/null 2>&1; then
-    found=1
-    echo "==> $container <=="
-    docker logs "$container"
-  fi
-done
-
-if [ "$found" -eq 0 ]; then
-  echo "tahoe: no Tahoe containers found on $tahoe_name" >&2
+  cat <<'EOF'
+if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
+  echo "tahoe: container not found on $tahoe_name: $CONTAINER" >&2
   exit 1
 fi
+
+docker logs "$CONTAINER"
 EOF
 }
 
@@ -416,7 +438,9 @@ tahoe_with_remote_script() {
     introducer) tahoe_remote_introducer > "$tmp_script" ;;
     node) tahoe_remote_node > "$tmp_script" ;;
     gateway) tahoe_remote_gateway > "$tmp_script" ;;
-    inspector-logs) tahoe_remote_inspector_logs > "$tmp_script" ;;
+    introducer-logs) tahoe_remote_logs "introducer" > "$tmp_script" ;;
+    node-logs) tahoe_remote_logs "node" > "$tmp_script" ;;
+    gateway-logs) tahoe_remote_logs "gateway" > "$tmp_script" ;;
     *) echo "tahoe: unknown remote command: $command_name" >&2; rm -f "$tmp_script"; return 1 ;;
   esac
 
@@ -450,28 +474,12 @@ main() {
       fi
 
       local env_file
-      env_file=$(tahoe_parse_env_file "$3" "$4") || return 1
-      tahoe_with_remote_script "$command_name" "$host_name" "$env_file"
-      return $?
-      ;;
-    inspector)
-      local host_name
-      host_name="$2"
-      if [ -z "$host_name" ]; then
-        echo "tahoe: missing host name" >&2
-        tahoe_usage
-        return 1
+      if env_file=$(tahoe_parse_logs_env_file "$3" "$4" "$5"); then
+        tahoe_with_remote_script "${command_name}-logs" "$host_name" "$env_file"
+      else
+        env_file=$(tahoe_parse_env_file "$3" "$4") || return 1
+        tahoe_with_remote_script "$command_name" "$host_name" "$env_file"
       fi
-
-      if [ "$3" != "--logs" ]; then
-        echo "tahoe: inspector requires --logs" >&2
-        tahoe_usage
-        return 1
-      fi
-
-      local env_file
-      env_file=$(tahoe_parse_env_file "$4" "$5") || return 1
-      tahoe_with_remote_script "inspector-logs" "$host_name" "$env_file"
       return $?
       ;;
     *)
