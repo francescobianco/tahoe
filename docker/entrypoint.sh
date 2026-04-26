@@ -39,6 +39,34 @@ open(path, "w").write("\n".join(out) + "\n")
 PY
 }
 
+configure_tahoe_cfg() {
+    python - "$NODE_DIR/tahoe.cfg" "$@" <<'PY'
+import sys, configparser
+
+path = sys.argv[1]
+furl = sys.argv[2]
+needed = sys.argv[3]
+total = sys.argv[4]
+happy = sys.argv[5]
+storage_enabled = sys.argv[6]
+reserved = sys.argv[7] if len(sys.argv) > 7 else None
+
+cfg = configparser.RawConfigParser()
+cfg.read(path)
+
+cfg.set('client', 'introducer.furl', furl)
+cfg.set('client', 'shares.needed', needed)
+cfg.set('client', 'shares.total', total)
+cfg.set('client', 'shares.happy', happy)
+cfg.set('storage', 'enabled', storage_enabled)
+if reserved is not None:
+    cfg.set('storage', 'reserved_space', reserved)
+
+with open(path, 'w') as f:
+    cfg.write(f)
+PY
+}
+
 ensure_sftp_config() {
     : "${SFTP_USER:?SFTP_USER was missing}"
     : "${SFTP_PUBLIC_KEY:?SFTP_PUBLIC_KEY was missing}"
@@ -101,7 +129,9 @@ PY
         SFTP_ROOTCAP=$(cat "$NODE_DIR/private/sftp.rootcap")
     fi
 
-    echo "$SFTP_USER $SFTP_PUBLIC_KEY $SFTP_ROOTCAP" > "$NODE_DIR/private/accounts"
+    # Strip comment from public key: keep only key-type and base64 data
+    sftp_pubkey=$(echo "$SFTP_PUBLIC_KEY" | cut -d' ' -f1,2)
+    echo "$SFTP_USER $sftp_pubkey $SFTP_ROOTCAP" > "$NODE_DIR/private/accounts"
 
     if ! grep -q '^\[sftpd\]' "$NODE_DIR/tahoe.cfg"; then
         cat >> "$NODE_DIR/tahoe.cfg" <<EOF
@@ -146,18 +176,9 @@ case "$NODE_TYPE" in
                 --port="tcp:${NODE_PORT}" \
                 --location="tcp:${NODE_HOSTNAME}:${NODE_PORT}" \
                 "$NODE_DIR"
-            cat >> "$NODE_DIR/tahoe.cfg" <<EOF
-
-[client]
-introducer.furl = $INTRODUCER_FURL
-shares.needed = $SHARES_NEEDED
-shares.total = $SHARES_TOTAL
-shares.happy = $SHARES_HAPPY
-
-[storage]
-enabled = true
-reserved_space = $STORAGE_RESERVED_SPACE
-EOF
+            configure_tahoe_cfg \
+                "$INTRODUCER_FURL" "$SHARES_NEEDED" "$SHARES_TOTAL" "$SHARES_HAPPY" \
+                "true" "$STORAGE_RESERVED_SPACE"
         fi
         exec tahoe run "$NODE_DIR"
         ;;
@@ -170,22 +191,9 @@ EOF
                 --port="tcp:${NODE_PORT}" \
                 --location="tcp:${NODE_HOSTNAME}:${NODE_PORT}" \
                 "$NODE_DIR"
-            cat >> "$NODE_DIR/tahoe.cfg" <<EOF
-
-[client]
-introducer.furl = $INTRODUCER_FURL
-shares.needed = $SHARES_NEEDED
-shares.total = $SHARES_TOTAL
-shares.happy = $SHARES_HAPPY
-
-[storage]
-enabled = false
-
-[sftpd]
-enabled = true
-port = tcp:$SFTP_PORT:interface=0.0.0.0
-accounts.file = private/accounts
-EOF
+            configure_tahoe_cfg \
+                "$INTRODUCER_FURL" "$SHARES_NEEDED" "$SHARES_TOTAL" "$SHARES_HAPPY" \
+                "false"
         fi
         ensure_sftp_config
         exec tahoe run "$NODE_DIR"
@@ -199,23 +207,9 @@ EOF
                 --port="tcp:${NODE_PORT}" \
                 --location="tcp:${NODE_HOSTNAME}:${NODE_PORT}" \
                 "$NODE_DIR"
-            cat >> "$NODE_DIR/tahoe.cfg" <<EOF
-
-[client]
-introducer.furl = $INTRODUCER_FURL
-shares.needed = $SHARES_NEEDED
-shares.total = $SHARES_TOTAL
-shares.happy = $SHARES_HAPPY
-
-[storage]
-enabled = true
-reserved_space = $STORAGE_RESERVED_SPACE
-
-[sftpd]
-enabled = true
-port = tcp:$SFTP_PORT:interface=0.0.0.0
-accounts.file = private/accounts
-EOF
+            configure_tahoe_cfg \
+                "$INTRODUCER_FURL" "$SHARES_NEEDED" "$SHARES_TOTAL" "$SHARES_HAPPY" \
+                "true" "$STORAGE_RESERVED_SPACE"
         fi
         ensure_sftp_config
         exec tahoe run "$NODE_DIR"
