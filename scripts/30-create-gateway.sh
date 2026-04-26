@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -e
 
-source .env
+: "${TAHOE_BASE:?TAHOE_BASE non impostata}"
+: "${INTRODUCER_FURL:?INTRODUCER_FURL non impostata}"
+: "${SHARES_NEEDED:?SHARES_NEEDED non impostata}"
+: "${SHARES_TOTAL:?SHARES_TOTAL non impostata}"
+: "${SHARES_HAPPY:?SHARES_HAPPY non impostata}"
+: "${SFTP_PORT:?SFTP_PORT non impostata}"
+
 source "$TAHOE_BASE/venv/bin/activate"
 
 NODE="$TAHOE_BASE/gateway"

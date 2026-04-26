@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-source .env
+: "${TAHOE_BASE:?TAHOE_BASE non impostata}"
+: "${HEALTHCHECK_MAIL_TO:?HEALTHCHECK_MAIL_TO non impostata}"
+
 source "$TAHOE_BASE/venv/bin/activate"
 
 TMP=$(mktemp -d)

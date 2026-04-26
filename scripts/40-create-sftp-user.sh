@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-source .env
+: "${TAHOE_BASE:?TAHOE_BASE non impostata}"
+: "${SFTP_USER:?SFTP_USER non impostata}"
+: "${SFTP_PASSWORD:?SFTP_PASSWORD non impostata}"
 
 NODE="$TAHOE_BASE/gateway"
 ACCOUNTS="$NODE/private/accounts"

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-source .env
+: "${TAHOE_BASE:?TAHOE_BASE non impostata}"
+: "${TAHOE_NODE_NAME:?TAHOE_NODE_NAME non impostata}"
+
 source "$TAHOE_BASE/venv/bin/activate"
 
 TYPE=$1
