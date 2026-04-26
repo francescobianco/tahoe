@@ -1,6 +1,7 @@
 # IDEs files
 .idea/
 .vscode/
+target/
 
 # Tahoe-LAFS
 private/
