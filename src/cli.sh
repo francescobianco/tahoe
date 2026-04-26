@@ -7,6 +7,7 @@ Usage:
   tahoe introducer <host> --logs [--env-file <file>]
   tahoe node <host> --logs [--env-file <file>]
   tahoe gateway <host> --logs [--env-file <file>]
+  tahoe gateway <host> --test [--env-file <file>]
   tahoe hosts
 
 Commands:
@@ -40,7 +41,9 @@ tahoe_cli_main() {
       fi
 
       local env_file
-      if env_file=$(tahoe_parse_logs_env_file "$3" "$4" "$5"); then
+      if [ "$command_name" = "gateway" ] && env_file=$(tahoe_parse_test_env_file "$3" "$4" "$5"); then
+        tahoe_gateway_test "$host_name" "$env_file"
+      elif env_file=$(tahoe_parse_logs_env_file "$3" "$4" "$5"); then
         tahoe_with_remote_script "${command_name}-logs" "$host_name" "$env_file"
       else
         env_file=$(tahoe_parse_env_file "$3" "$4") || return 1

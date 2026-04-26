@@ -63,6 +63,14 @@ Crea un gateway SFTP senza storage locale usando `GATEWAY_PORT`, `SFTP_PORT`, `S
 tahoe node tahoe-1 --env-file ./prod.env
 ```
 
+## Host locale
+
+`local` e un host built-in, quindi non richiede una riga in `~/.hosts`:
+
+```bash
+tahoe node local
+```
+
 ## Logs remoti
 
 ```bash
@@ -70,6 +78,14 @@ tahoe introducer tahoe-1 --logs
 tahoe node tahoe-1 --logs
 tahoe gateway tahoe-1 --logs
 ```
+
+## Test gateway
+
+```bash
+tahoe gateway tahoe-1 --test
+```
+
+Il test fa un upload SFTP reale dal client locale verso il gateway, scarica di nuovo il file e confronta gli hash. Usa `SFTP_HOST` dal `.env`; se non e impostato usa l'host risolto da `~/.hosts`. Per `local` usa `127.0.0.1`.
 
 ## Accesso
 

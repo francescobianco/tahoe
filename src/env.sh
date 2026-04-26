@@ -74,3 +74,32 @@ tahoe_parse_logs_env_file() {
 
   tahoe_parse_env_file "$second_arg" "$third_arg"
 }
+
+tahoe_parse_test_env_file() {
+  local first_arg
+  first_arg="$1"
+  local second_arg
+  second_arg="$2"
+  local third_arg
+  third_arg="$3"
+
+  if [ "$first_arg" != "--test" ]; then
+    return 1
+  fi
+
+  tahoe_parse_env_file "$second_arg" "$third_arg"
+}
+
+tahoe_load_env_file() {
+  local env_file
+  env_file="$1"
+
+  if [ ! -f "$env_file" ]; then
+    echo "tahoe: env file not found: $env_file" >&2
+    return 1
+  fi
+
+  set -a
+  . "$env_file"
+  set +a
+}
