@@ -2,8 +2,9 @@
 set -e
 
 : "${TAHOE_BASE:?TAHOE_BASE was missing}"
-: "${TAHOE_NODE_NAME:?TAHOE_NODE_NAME was missing}"
 : "${INTRODUCER_FURL:?INTRODUCER_FURL was missing}"
+
+TAHOE_NODE_NAME="tahoe-$(hostname -s)"
 
 source "$TAHOE_BASE/venv/bin/activate"
 
