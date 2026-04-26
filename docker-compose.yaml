@@ -1,0 +1,31 @@
+services:
+  introducer:
+    build: .
+    image: tahoe-lafs
+    command: introducer
+    environment:
+      - INTRODUCER_HOSTNAME
+    volumes:
+      - ${TAHOE_BASE:-/opt/tahoe}/data/introducer:/node
+    ports:
+      - "3458:3458"
+    restart: unless-stopped
+
+  node:
+    build: .
+    image: tahoe-lafs
+    command: node
+    environment:
+      - INTRODUCER_FURL
+      - SHARES_NEEDED
+      - SHARES_TOTAL
+      - SHARES_HAPPY
+      - STORAGE_RESERVED_SPACE
+      - SFTP_PORT
+      - SFTP_USER
+      - SFTP_PASSWORD
+    volumes:
+      - ${TAHOE_BASE:-/opt/tahoe}/data/node:/node
+    ports:
+      - "${SFTP_PORT:-8022}:${SFTP_PORT:-8022}"
+    restart: unless-stopped
