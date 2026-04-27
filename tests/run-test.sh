@@ -20,12 +20,87 @@ NODE_IPS=(172.20.0.11 172.20.0.12 172.20.0.13)
 GATEWAY_IP=172.20.0.14
 ALL_IPS=($INTRODUCER_IP "${NODE_IPS[@]}" $GATEWAY_IP)
 
-SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o LogLevel=ERROR"
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR"
 
 log()  { echo "[test] $*"; }
 fail() { echo "[test] FAIL: $*" >&2; exit 1; }
 
 ssh_exec() { local ip="$1"; shift; sshpass -p tahoe ssh $SSH_OPTS root@"$ip" "$@"; }
+count_fragments() {
+  local ip="$1"
+  ssh_exec "$ip" 'find /opt/tahoe/data/node/storage/shares -type f 2>/dev/null | wc -l' | tr -d '[:space:]'
+}
+
+run_local_sftp_test() {
+  local size_mb
+  size_mb="${TAHOE_TEST_SIZE_MB:-1}"
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+  local local_file
+  local_file="$tmp_dir/upload.bin"
+  local downloaded_file
+  downloaded_file="$tmp_dir/download.bin"
+  local remote_dir
+  remote_dir="tahoe-test"
+  local remote_file
+  remote_file="${remote_dir}/test-$(date +%s)-$$.bin"
+  local attempt_ok
+  attempt_ok=0
+
+  dd if=/dev/urandom of="$local_file" bs=1M count="$size_mb" status=none
+
+  echo "Uploading ${size_mb}MiB to ${SFTP_USER}@${GATEWAY_IP}:${SFTP_PORT}/${remote_file}"
+  for attempt in $(seq 1 30); do
+    local sftp_status
+    sftp_status=0
+
+    if timeout 20 sftp \
+      -P "$SFTP_PORT" \
+      -i "$SFTP_PRIVATE_KEY" \
+      -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null \
+      -o GlobalKnownHostsFile=/dev/null \
+      -o BatchMode=no \
+      -b - \
+      "${SFTP_USER}@${GATEWAY_IP}" <<EOF
+-mkdir $remote_dir
+put $local_file $remote_file
+get $remote_file $downloaded_file
+EOF
+    then
+      sftp_status=0
+    else
+      sftp_status=$?
+    fi
+
+    if { [ "$sftp_status" -eq 0 ] || [ "$sftp_status" -eq 124 ]; } && [ -s "$downloaded_file" ]; then
+      attempt_ok=1
+      break
+    fi
+
+    echo "SFTP attempt $attempt failed, retrying..." >&2
+    sleep 2
+  done
+
+  [ "$attempt_ok" -eq 1 ] || {
+    echo "gateway upload test failed: SFTP never became stable" >&2
+    rm -rf "$tmp_dir"
+    return 1
+  }
+
+  local source_hash
+  source_hash=$(sha256sum "$local_file" | cut -d' ' -f1)
+  local downloaded_hash
+  downloaded_hash=$(sha256sum "$downloaded_file" | cut -d' ' -f1)
+  rm -rf "$tmp_dir"
+
+  [ "$source_hash" = "$downloaded_hash" ] || {
+    echo "gateway upload test failed: hash mismatch" >&2
+    return 1
+  }
+
+  echo "Gateway upload test OK: $source_hash"
+}
 
 # ── arguments ─────────────────────────────────────────────────────────────────
 
@@ -47,7 +122,7 @@ esac
 
 # ── prerequisites ─────────────────────────────────────────────────────────────
 
-for cmd in docker sshpass sftp ssh-keygen sha256sum dd; do
+for cmd in docker sshpass sftp ssh-keygen sha256sum dd timeout; do
   command -v "$cmd" >/dev/null 2>&1 || fail "required command not found: $cmd"
 done
 [ -x "$TAHOE" ] || fail "tahoe binary not found: $TAHOE"
@@ -71,6 +146,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
     "$CONFIG_FILE"
   log "Config ready: $CONFIG_FILE"
 fi
+
+# shellcheck disable=SC1090
+. "$CONFIG_FILE"
 
 # ── start DinD hosts ──────────────────────────────────────────────────────────
 
@@ -123,17 +201,45 @@ $TAHOE_CMD gateway gateway-host
 
 log "Waiting for SFTP on gateway..."
 for i in $(seq 1 90); do
-  ssh_exec "$GATEWAY_IP" 'nc -z localhost 8022 2>/dev/null' && break || true
+  ssh_exec "$GATEWAY_IP" "printf '' | nc -w 2 localhost 8022 2>/dev/null | grep -q '^SSH-2.0-'" && break || true
   sleep 3
 done
-ssh_exec "$GATEWAY_IP" 'nc -z localhost 8022 2>/dev/null' \
-  || fail "gateway SFTP port 8022 not open after timeout"
-log "  SFTP ready."
+ssh_exec "$GATEWAY_IP" "printf '' | nc -w 2 localhost 8022 2>/dev/null | grep -q '^SSH-2.0-'" \
+  || fail "gateway SFTP banner not ready after timeout"
+log "  SFTP banner ready."
 
 # ── upload/download test via tahoe CLI ────────────────────────────────────────
 
-log "Running SFTP upload/download test..."
-$TAHOE_CMD gateway gateway-host --test
+log "Capturing fragment counts before upload..."
+before_counts=()
+for ip in "${NODE_IPS[@]}"; do
+  before_counts+=("$(count_fragments "$ip")")
+done
+
+log "Running local SFTP upload/download test through ${GATEWAY_IP}:${SFTP_PORT}..."
+run_local_sftp_test
+
+log "Verifying fragment creation on storage nodes..."
+nodes_with_new_fragments=0
+total_new_fragments=0
+after_counts=()
+for i in 1 2 3; do
+  ip="${NODE_IPS[$((i-1))]}"
+  after_counts+=("$(count_fragments "$ip")")
+  before_count="${before_counts[$((i-1))]}"
+  after_count="${after_counts[$((i-1))]}"
+  delta=$((after_count - before_count))
+  if [ "$delta" -gt 0 ]; then
+    nodes_with_new_fragments=$((nodes_with_new_fragments + 1))
+    total_new_fragments=$((total_new_fragments + delta))
+  fi
+  log "  node$i fragments: before=$before_count after=$after_count delta=$delta"
+done
+
+[ "$total_new_fragments" -gt 0 ] \
+  || fail "upload test completed but no new storage fragments were created"
+[ "$nodes_with_new_fragments" -ge "${SHARES_NEEDED}" ] \
+  || fail "expected new fragments on at least ${SHARES_NEEDED} nodes, got ${nodes_with_new_fragments}"
 
 # ── show fragments on storage nodes ──────────────────────────────────────────
 

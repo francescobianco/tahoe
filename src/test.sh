@@ -26,6 +26,7 @@ tahoe_gateway_test() {
   tahoe_require_command sha256sum || return 1
   tahoe_require_command dd || return 1
   tahoe_require_command mktemp || return 1
+  tahoe_require_command timeout || return 1
 
   local tmp_dir
   tmp_dir=$(mktemp -d)
@@ -39,22 +40,49 @@ tahoe_gateway_test() {
   remote_file="${remote_dir}/test-$(date +%s)-$$.bin"
   local size_mb
   size_mb="${TAHOE_TEST_SIZE_MB:-1}"
+  local attempt_ok
+  attempt_ok=0
 
   dd if=/dev/urandom of="$local_file" bs=1M count="$size_mb" status=none
 
   echo "Uploading ${size_mb}MiB to ${SFTP_USER}@${gateway_host}:${SFTP_PORT}/${remote_file}"
-  sftp \
-    -P "$SFTP_PORT" \
-    -i "$SFTP_PRIVATE_KEY" \
-    -o StrictHostKeyChecking=no \
-    -o BatchMode=no \
-    -b - \
-    "$SFTP_USER@$gateway_host" <<EOF
+  for attempt in $(seq 1 30); do
+    local sftp_status
+    sftp_status=0
+
+    if timeout 20 sftp \
+      -P "$SFTP_PORT" \
+      -i "$SFTP_PRIVATE_KEY" \
+      -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null \
+      -o GlobalKnownHostsFile=/dev/null \
+      -o BatchMode=no \
+      -b - \
+      "$SFTP_USER@$gateway_host" <<EOF
 -mkdir $remote_dir
 put $local_file $remote_file
 get $remote_file $downloaded_file
-rm $remote_file
 EOF
+    then
+      sftp_status=0
+    else
+      sftp_status=$?
+    fi
+
+    if { [ "$sftp_status" -eq 0 ] || [ "$sftp_status" -eq 124 ]; } && [ -s "$downloaded_file" ]; then
+      attempt_ok=1
+      break
+    fi
+
+    echo "tahoe: gateway test attempt $attempt failed, retrying..." >&2
+    sleep 2
+  done
+
+  if [ "$attempt_ok" -ne 1 ]; then
+    echo "tahoe: gateway upload test failed: SFTP never became stable" >&2
+    rm -rf "$tmp_dir"
+    return 1
+  fi
 
   local source_hash
   source_hash=$(sha256sum "$local_file" | cut -d' ' -f1)

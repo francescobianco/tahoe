@@ -41,7 +41,7 @@ PY
 
 configure_tahoe_cfg() {
     python - "$NODE_DIR/tahoe.cfg" "$@" <<'PY'
-import sys, configparser
+import sys, os, configparser
 
 path = sys.argv[1]
 furl = sys.argv[2]
@@ -54,7 +54,6 @@ reserved = sys.argv[7] if len(sys.argv) > 7 else None
 cfg = configparser.RawConfigParser()
 cfg.read(path)
 
-cfg.set('client', 'introducer.furl', furl)
 cfg.set('client', 'shares.needed', needed)
 cfg.set('client', 'shares.total', total)
 cfg.set('client', 'shares.happy', happy)
@@ -64,6 +63,14 @@ if reserved is not None:
 
 with open(path, 'w') as f:
     cfg.write(f)
+
+# Tahoe-LAFS 1.18+ uses private/introducers.yaml instead of introducer.furl
+priv = os.path.join(os.path.dirname(path), 'private')
+os.makedirs(priv, exist_ok=True)
+with open(os.path.join(priv, 'introducers.yaml'), 'w') as f:
+    f.write("introducers:\n")
+    f.write("  main:\n")
+    f.write(f"    furl: {furl}\n")
 PY
 }
 
@@ -81,7 +88,7 @@ ensure_sftp_config() {
         if [ ! -s "$NODE_DIR/private/sftp.rootcap" ]; then
             rm -f "$NODE_DIR/private/sftp.rootcap"
             set_sftpd_enabled false
-            tahoe run "$NODE_DIR" &
+            tahoe run --allow-stdin-close "$NODE_DIR" &
             TAHOE_PID=$!
 
             for i in $(seq 1 60); do
@@ -114,13 +121,18 @@ PY
             done
 
             tahoe -d "$NODE_DIR" mkdir > "$NODE_DIR/private/sftp.rootcap.tmp"
-            if [ ! -s "$NODE_DIR/private/sftp.rootcap.tmp" ]; then
-                kill "$TAHOE_PID" 2>/dev/null || true
-                wait "$TAHOE_PID" 2>/dev/null || true
-                rm -f "$NODE_DIR/private/sftp.rootcap.tmp"
-                echo "Unable to create SFTP rootcap: tahoe mkdir returned empty output" >&2
-                exit 1
-            fi
+            _rootcap_content=$(cat "$NODE_DIR/private/sftp.rootcap.tmp" 2>/dev/null || true)
+            case "$_rootcap_content" in
+                URI:DIR2:*)
+                    ;;
+                *)
+                    kill "$TAHOE_PID" 2>/dev/null || true
+                    wait "$TAHOE_PID" 2>/dev/null || true
+                    rm -f "$NODE_DIR/private/sftp.rootcap.tmp"
+                    echo "Unable to create SFTP rootcap: unexpected output: ${_rootcap_content:0:80}" >&2
+                    exit 1
+                    ;;
+            esac
             mv "$NODE_DIR/private/sftp.rootcap.tmp" "$NODE_DIR/private/sftp.rootcap"
             kill "$TAHOE_PID" 2>/dev/null || true
             wait "$TAHOE_PID" 2>/dev/null || true

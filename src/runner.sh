@@ -48,7 +48,7 @@ tahoe_runner_exec() {
   tahoe_require_command ssh || return 1
 
   local ssh_opts
-  ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+  ssh_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=10"
   local payload
   payload=$({ printf '%s\n' "$host_inject" "$env_inject"; cat "$script_file"; } | base64 -w0)
 

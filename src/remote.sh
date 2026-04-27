@@ -19,7 +19,7 @@ if [ -f "$FURL_FILE" ]; then
 fi
 
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-docker pull "$IMAGE"
+docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE"
 docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
@@ -65,7 +65,7 @@ TAHOE_NODE_HOSTNAME="${TAHOE_NODE_HOSTNAME:-$tahoe_host}"
 mkdir -p "$DATA_DIR"
 
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-docker pull "$IMAGE"
+docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE"
 docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
@@ -105,10 +105,11 @@ TAHOE_NODE_HOSTNAME="${TAHOE_NODE_HOSTNAME:-$tahoe_host}"
 mkdir -p "$DATA_DIR"
 
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-docker pull "$IMAGE"
+docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE"
 docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
+  --network host \
   -e TAHOE_NODE_HOSTNAME="$TAHOE_NODE_HOSTNAME" \
   -e INTRODUCER_FURL="$INTRODUCER_FURL" \
   -e NODE_PORT="$GATEWAY_PORT" \
@@ -120,8 +121,6 @@ docker run -d \
   -e SFTP_PUBLIC_KEY="$SFTP_PUBLIC_KEY" \
   -e SFTP_ROOTCAP="${SFTP_ROOTCAP:-auto}" \
   -v "$DATA_DIR:/node" \
-  -p "${GATEWAY_PORT}:${GATEWAY_PORT}" \
-  -p "${SFTP_PORT}:${SFTP_PORT}" \
   "$IMAGE" gateway
 
 echo "Gateway started on $tahoe_name: $CONTAINER"
