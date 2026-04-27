@@ -18,7 +18,12 @@ TAHOE_CMD="$TAHOE --config $CONFIG_FILE --hosts $HOSTS_FILE"
 INTRODUCER_IP=172.20.0.10
 NODE_IPS=(172.20.0.11 172.20.0.12 172.20.0.13)
 GATEWAY_IP=172.20.0.14
+FILEMANAGER_IP=172.20.0.15
 ALL_IPS=($INTRODUCER_IP "${NODE_IPS[@]}" $GATEWAY_IP)
+FILEMANAGER_ADMIN_USER=admin
+FILEMANAGER_ADMIN_PASSWORD=tahoe-admin
+FILEMANAGER_WEB_USER=tahoe
+FILEMANAGER_WEB_PASSWORD=tahoe
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR"
 
@@ -29,6 +34,68 @@ ssh_exec() { local ip="$1"; shift; sshpass -p tahoe ssh $SSH_OPTS root@"$ip" "$@
 count_fragments() {
   local ip="$1"
   ssh_exec "$ip" 'find /opt/tahoe/data/node/storage/shares -type f 2>/dev/null | wc -l' | tr -d '[:space:]'
+}
+
+configure_filemanager() {
+  local token_json
+  token_json=$(curl --fail --silent --show-error --anyauth \
+    -u "${FILEMANAGER_ADMIN_USER}:${FILEMANAGER_ADMIN_PASSWORD}" \
+    "http://${FILEMANAGER_IP}:8080/api/v2/token")
+  local token
+  token=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])' <<<"$token_json")
+
+  local payload
+  payload=$(python3 - "$SFTP_PRIVATE_KEY" <<'PY'
+import json
+import sys
+
+private_key_path = sys.argv[1]
+with open(private_key_path, "r", encoding="utf-8") as fh:
+    private_key = fh.read()
+
+payload = {
+    "status": 1,
+    "username": "tahoe",
+    "password": "tahoe",
+    "home_dir": "/",
+    "permissions": {"/": ["*"]},
+    "filesystem": {
+        "provider": 5,
+        "sftpconfig": {
+            "endpoint": "172.20.0.14:8022",
+            "username": "tahoe",
+            "private_key": {
+                "status": "Plain",
+                "payload": private_key,
+            },
+        },
+    },
+}
+print(json.dumps(payload))
+PY
+)
+
+  local http_code
+  http_code=$(curl --silent --show-error --output /tmp/tahoe-sftpgo-user.json --write-out '%{http_code}' \
+    -X PUT \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    "http://${FILEMANAGER_IP}:8080/api/v2/users/${FILEMANAGER_WEB_USER}?disconnect=1")
+
+  if [ "$http_code" = "404" ]; then
+    curl --fail --silent --show-error \
+      -X POST \
+      -H "Authorization: Bearer ${token}" \
+      -H "Content-Type: application/json" \
+      -d "$payload" \
+      "http://${FILEMANAGER_IP}:8080/api/v2/users" >/dev/null
+  elif [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+    cat /tmp/tahoe-sftpgo-user.json >&2 || true
+    fail "unable to configure SFTPGo user, HTTP ${http_code}"
+  fi
+
+  rm -f /tmp/tahoe-sftpgo-user.json
 }
 
 run_local_sftp_test() {
@@ -122,7 +189,7 @@ esac
 
 # ── prerequisites ─────────────────────────────────────────────────────────────
 
-for cmd in docker sshpass sftp ssh-keygen sha256sum dd timeout; do
+for cmd in docker sshpass sftp ssh-keygen sha256sum dd timeout curl python3; do
   command -v "$cmd" >/dev/null 2>&1 || fail "required command not found: $cmd"
 done
 [ -x "$TAHOE" ] || fail "tahoe binary not found: $TAHOE"
@@ -143,6 +210,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
     -e 's|SFTP_HOST=.*|SFTP_HOST="172.20.0.14"|' \
     -e 's|SFTP_USER=.*|SFTP_USER="tahoe"|' \
     -e "s|SFTP_PRIVATE_KEY=.*|SFTP_PRIVATE_KEY=\"$TESTS_DIR/.tahoe.pem\"|" \
+    -e 's|TAHOE_WEB_PORT=.*|TAHOE_WEB_PORT=3456|' \
+    -e 's|TAHOE_WEB_URL=.*|TAHOE_WEB_URL="http://172.20.0.14:3456/"|' \
+    -e 's|FILEMANAGER_URL=.*|FILEMANAGER_URL="http://172.20.0.15:8080/web/client/login"|' \
     "$CONFIG_FILE"
   log "Config ready: $CONFIG_FILE"
 fi
@@ -208,6 +278,27 @@ ssh_exec "$GATEWAY_IP" "printf '' | nc -w 2 localhost 8022 2>/dev/null | grep -q
   || fail "gateway SFTP banner not ready after timeout"
 log "  SFTP banner ready."
 
+log "Waiting for Tahoe web UI on gateway..."
+for i in $(seq 1 60); do
+  curl -fsS "http://${GATEWAY_IP}:3456/" >/dev/null && break || true
+  sleep 2
+done
+curl -fsS "http://${GATEWAY_IP}:3456/" >/dev/null \
+  || fail "gateway Tahoe web UI not ready after timeout"
+log "  Tahoe web UI ready: http://${GATEWAY_IP}:3456/"
+
+log "Waiting for SFTPGo web client..."
+for i in $(seq 1 60); do
+  curl -fsS "http://${FILEMANAGER_IP}:8080/healthz" >/dev/null && break || true
+  sleep 2
+done
+curl -fsS "http://${FILEMANAGER_IP}:8080/healthz" >/dev/null \
+  || fail "SFTPGo health endpoint not ready after timeout"
+configure_filemanager
+curl -fsS "http://${FILEMANAGER_IP}:8080/web/client/login" >/dev/null \
+  || fail "SFTPGo web client login page not reachable"
+log "  File manager ready: http://${FILEMANAGER_IP}:8080/web/client/login"
+
 # ── upload/download test via tahoe CLI ────────────────────────────────────────
 
 log "Capturing fragment counts before upload..."
@@ -252,6 +343,10 @@ for i in 1 2 3; do
     'find /opt/tahoe/data/node/storage/shares -type f 2>/dev/null | head -20 || echo "(no shares yet)"'
 done
 
+log "============================================"
+log "Tahoe web UI: http://${GATEWAY_IP}:3456/"
+log "File manager: http://${FILEMANAGER_IP}:8080/web/client/login"
+log "File manager credentials: ${FILEMANAGER_WEB_USER}/${FILEMANAGER_WEB_PASSWORD}"
 log "============================================"
 log "All tests passed."
 log "============================================"

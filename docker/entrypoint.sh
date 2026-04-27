@@ -50,6 +50,7 @@ total = sys.argv[4]
 happy = sys.argv[5]
 storage_enabled = sys.argv[6]
 reserved = sys.argv[7] if len(sys.argv) > 7 else None
+web_port = os.environ.get("TAHOE_WEB_PORT")
 
 cfg = configparser.RawConfigParser()
 cfg.read(path)
@@ -60,6 +61,8 @@ cfg.set('client', 'shares.happy', happy)
 cfg.set('storage', 'enabled', storage_enabled)
 if reserved is not None:
     cfg.set('storage', 'reserved_space', reserved)
+if web_port:
+    cfg.set('node', 'web.port', f"tcp:{web_port}:interface=0.0.0.0")
 
 with open(path, 'w') as f:
     cfg.write(f)

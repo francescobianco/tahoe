@@ -9,6 +9,7 @@ Usage:
   tahoe [--config <file>] [--hosts <file>] node <host> --logs
   tahoe [--config <file>] [--hosts <file>] gateway <host> --logs
   tahoe [--config <file>] [--hosts <file>] gateway <host> --test
+  tahoe [--config <file>] upload <local-file> <remote-dir>
   tahoe [--config <file>] [--hosts <file>] hosts
 
 Options:
@@ -20,6 +21,7 @@ Commands:
   introducer  Deploy introducer; FURL is auto-saved to the config file
   node        Deploy a storage node container
   gateway     Deploy an SFTP gateway container
+  upload      Upload a local file through the configured gateway
   hosts       List hosts from the hosts file
 EOF
 }
@@ -57,6 +59,22 @@ tahoe_cli_main() {
       ;;
     init)
       tahoe_init
+      return $?
+      ;;
+    upload)
+      if [ ! -f "$config_file" ]; then
+        echo "tahoe: config file not found: $config_file" >&2
+        echo "tahoe: run 'tahoe init' to create one" >&2
+        return 1
+      fi
+      local local_file="${2:-}"
+      local remote_dir="${3:-}"
+      if [ -z "$local_file" ] || [ -z "$remote_dir" ]; then
+        echo "tahoe: upload requires <local-file> and <remote-dir>" >&2
+        tahoe_usage
+        return 1
+      fi
+      tahoe_upload_file "$config_file" "$local_file" "$remote_dir"
       return $?
       ;;
     introducer|node|gateway)

@@ -98,3 +98,58 @@ EOF
 
   echo "Gateway upload test OK: $source_hash"
 }
+
+tahoe_upload_file() {
+  local env_file
+  env_file="$1"
+  local local_file
+  local_file="$2"
+  local remote_dir
+  remote_dir="$3"
+
+  tahoe_load_env_file "$env_file" || return 1
+
+  : "${SFTP_HOST:?SFTP_HOST was missing}"
+  : "${SFTP_PORT:?SFTP_PORT was missing}"
+  : "${SFTP_USER:?SFTP_USER was missing}"
+  : "${SFTP_PRIVATE_KEY:?SFTP_PRIVATE_KEY was missing}"
+
+  tahoe_require_command sftp || return 1
+  tahoe_require_command timeout || return 1
+
+  if [ ! -f "$local_file" ]; then
+    echo "tahoe: local file not found: $local_file" >&2
+    return 1
+  fi
+
+  local remote_target
+  if [ "$remote_dir" = "/" ]; then
+    remote_target="/$(basename "$local_file")"
+  else
+    remote_target="${remote_dir%/}/$(basename "$local_file")"
+  fi
+
+  if timeout 60 sftp \
+    -P "$SFTP_PORT" \
+    -i "$SFTP_PRIVATE_KEY" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o GlobalKnownHostsFile=/dev/null \
+    -o BatchMode=no \
+    -b - \
+    "${SFTP_USER}@${SFTP_HOST}" <<EOF
+-mkdir $remote_dir
+put $local_file $remote_target
+EOF
+  then
+    :
+  else
+    local sftp_status=$?
+    if [ "$sftp_status" -ne 124 ]; then
+      echo "tahoe: upload failed via ${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}" >&2
+      return "$sftp_status"
+    fi
+  fi
+
+  echo "Upload OK: ${local_file} -> ${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}:${remote_target}"
+}

@@ -451,6 +451,7 @@ set -e
 IMAGE="${TAHOE_IMAGE:-yafb/tahoe}"
 CONTAINER="${TAHOE_GATEWAY_CONTAINER:-tahoe-gateway}"
 GATEWAY_PORT="${GATEWAY_PORT:-3459}"
+TAHOE_WEB_PORT="${TAHOE_WEB_PORT:-3456}"
 DATA_DIR="${TAHOE_BASE:-/opt/tahoe}/data/gateway"
 TAHOE_NODE_HOSTNAME="${TAHOE_NODE_HOSTNAME:-$tahoe_host}"
 
@@ -465,6 +466,7 @@ docker run -d \
   -e TAHOE_NODE_HOSTNAME="$TAHOE_NODE_HOSTNAME" \
   -e INTRODUCER_FURL="$INTRODUCER_FURL" \
   -e NODE_PORT="$GATEWAY_PORT" \
+  -e TAHOE_WEB_PORT="$TAHOE_WEB_PORT" \
   -e SHARES_NEEDED="$SHARES_NEEDED" \
   -e SHARES_TOTAL="$SHARES_TOTAL" \
   -e SHARES_HAPPY="$SHARES_HAPPY" \
@@ -690,6 +692,61 @@ EOF
   echo "Gateway upload test OK: $source_hash"
 }
 
+tahoe_upload_file() {
+  local env_file
+  env_file="$1"
+  local local_file
+  local_file="$2"
+  local remote_dir
+  remote_dir="$3"
+
+  tahoe_load_env_file "$env_file" || return 1
+
+  : "${SFTP_HOST:?SFTP_HOST was missing}"
+  : "${SFTP_PORT:?SFTP_PORT was missing}"
+  : "${SFTP_USER:?SFTP_USER was missing}"
+  : "${SFTP_PRIVATE_KEY:?SFTP_PRIVATE_KEY was missing}"
+
+  tahoe_require_command sftp || return 1
+  tahoe_require_command timeout || return 1
+
+  if [ ! -f "$local_file" ]; then
+    echo "tahoe: local file not found: $local_file" >&2
+    return 1
+  fi
+
+  local remote_target
+  if [ "$remote_dir" = "/" ]; then
+    remote_target="/$(basename "$local_file")"
+  else
+    remote_target="${remote_dir%/}/$(basename "$local_file")"
+  fi
+
+  if timeout 60 sftp \
+    -P "$SFTP_PORT" \
+    -i "$SFTP_PRIVATE_KEY" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o GlobalKnownHostsFile=/dev/null \
+    -o BatchMode=no \
+    -b - \
+    "${SFTP_USER}@${SFTP_HOST}" <<EOF
+-mkdir $remote_dir
+put $local_file $remote_target
+EOF
+  then
+    :
+  else
+    local sftp_status=$?
+    if [ "$sftp_status" -ne 124 ]; then
+      echo "tahoe: upload failed via ${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}" >&2
+      return "$sftp_status"
+    fi
+  fi
+
+  echo "Upload OK: ${local_file} -> ${SFTP_USER}@${SFTP_HOST}:${SFTP_PORT}:${remote_target}"
+}
+
 # @section_code: SC007
 # @section_name: source
 # @source_index: 8
@@ -726,6 +783,7 @@ INTRODUCER_HOSTNAME="your.server.hostname.or.ip"
 INTRODUCER_PORT=3458
 NODE_PORT=3457
 GATEWAY_PORT=3459
+TAHOE_WEB_PORT=3456
 INTRODUCER_FURL="PASTE_HERE"
 
 SHARES_NEEDED=1
@@ -741,6 +799,8 @@ SFTP_PRIVATE_KEY="$private_key"
 SFTP_PUBLIC_KEY="$public_key"
 SFTP_ROOTCAP="auto"
 TAHOE_TEST_SIZE_MB=1
+TAHOE_WEB_URL="http://your.server.hostname.or.ip:3456/"
+FILEMANAGER_URL="http://your.server.hostname.or.ip:8080/web/client/login"
 EOF
 
   echo "Created $env_file"
@@ -764,6 +824,7 @@ Usage:
   tahoe [--config <file>] [--hosts <file>] node <host> --logs
   tahoe [--config <file>] [--hosts <file>] gateway <host> --logs
   tahoe [--config <file>] [--hosts <file>] gateway <host> --test
+  tahoe [--config <file>] upload <local-file> <remote-dir>
   tahoe [--config <file>] [--hosts <file>] hosts
 
 Options:
@@ -775,6 +836,7 @@ Commands:
   introducer  Deploy introducer; FURL is auto-saved to the config file
   node        Deploy a storage node container
   gateway     Deploy an SFTP gateway container
+  upload      Upload a local file through the configured gateway
   hosts       List hosts from the hosts file
 EOF
 }
@@ -812,6 +874,22 @@ tahoe_cli_main() {
       ;;
     init)
       tahoe_init
+      return $?
+      ;;
+    upload)
+      if [ ! -f "$config_file" ]; then
+        echo "tahoe: config file not found: $config_file" >&2
+        echo "tahoe: run 'tahoe init' to create one" >&2
+        return 1
+      fi
+      local local_file="${2:-}"
+      local remote_dir="${3:-}"
+      if [ -z "$local_file" ] || [ -z "$remote_dir" ]; then
+        echo "tahoe: upload requires <local-file> and <remote-dir>" >&2
+        tahoe_usage
+        return 1
+      fi
+      tahoe_upload_file "$config_file" "$local_file" "$remote_dir"
       return $?
       ;;
     introducer|node|gateway)

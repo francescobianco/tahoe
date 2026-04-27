@@ -1,4 +1,4 @@
-# Test cluster: 1 introducer + 3 storage nodes + 1 gateway
+# Test cluster: 1 introducer + 3 storage nodes + 1 gateway + 1 SFTP web client
 # Each service is a privileged Debian machine running dockerd (DinD).
 # The `tahoe` CLI connects via SSH and launches Tahoe-LAFS containers exactly
 # as it would against real remote servers.
@@ -8,7 +8,8 @@
 #   node1-host       172.20.0.11
 #   node2-host       172.20.0.12
 #   node3-host       172.20.0.13
-#   gateway-host     172.20.0.14  (SFTP :8022 forwarded to host)
+#   gateway-host     172.20.0.14
+#   filemanager      172.20.0.15
 #
 # Run the full test:
 #   cd tests && ./run-test.sh
@@ -72,10 +73,21 @@ services:
     networks:
       tahoe-net:
         ipv4_address: 172.20.0.14
-    ports:
-      - "8022:8022"
     volumes:
       - gateway-data:/opt/tahoe
+
+  filemanager:
+    image: drakkan/sftpgo:v2.7.0
+    hostname: filemanager
+    environment:
+      SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN: "1"
+      SFTPGO_DEFAULT_ADMIN_USERNAME: "admin"
+      SFTPGO_DEFAULT_ADMIN_PASSWORD: "tahoe-admin"
+    networks:
+      tahoe-net:
+        ipv4_address: 172.20.0.15
+    volumes:
+      - filemanager-data:/var/lib/sftpgo
 
 networks:
   tahoe-net:
@@ -92,3 +104,4 @@ volumes:
   node2-data:
   node3-data:
   gateway-data:
+  filemanager-data:

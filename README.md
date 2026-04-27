@@ -69,6 +69,14 @@ Crea un gateway SFTP senza storage locale usando `GATEWAY_PORT`, `SFTP_PORT`, `S
 
 Tahoe-LAFS SFTP usa autenticazione a chiave pubblica. Puoi impostare direttamente `SFTP_PUBLIC_KEY`, oppure impostare `SFTP_PRIVATE_KEY` e il comando `tahoe` ricavera la public key localmente durante il deploy.
 
+## Upload rapido
+
+```bash
+tahoe --config ./.tahoe upload ./backup.tar /incoming
+```
+
+Il comando usa direttamente `SFTP_HOST`, `SFTP_PORT`, `SFTP_USER` e `SFTP_PRIVATE_KEY` gia presenti nel file `.tahoe`. Non serve passare altro.
+
 ## Env file alternativo
 
 ```bash
@@ -98,6 +106,8 @@ tahoe gateway tahoe-1 --test
 ```
 
 Il test fa un upload SFTP reale dal client locale verso il gateway, scarica di nuovo il file e confronta gli hash. Usa `SFTP_HOST` dal `.tahoe`; se non e impostato usa l'host risolto da `~/.hosts`. Per `local` usa `127.0.0.1`.
+
+Nel cluster di test il gateway espone anche la web UI Tahoe su `http://172.20.0.14:3456/` e viene avviato un file manager web separato basato su SFTPGo, collegato al gateway via SFTP, su `http://172.20.0.15:8080/web/client/login`.
 
 ## Accesso
 

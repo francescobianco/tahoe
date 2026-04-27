@@ -29,6 +29,7 @@ INTRODUCER_HOSTNAME="your.server.hostname.or.ip"
 INTRODUCER_PORT=3458
 NODE_PORT=3457
 GATEWAY_PORT=3459
+TAHOE_WEB_PORT=3456
 INTRODUCER_FURL="PASTE_HERE"
 
 SHARES_NEEDED=1
@@ -44,6 +45,8 @@ SFTP_PRIVATE_KEY="$private_key"
 SFTP_PUBLIC_KEY="$public_key"
 SFTP_ROOTCAP="auto"
 TAHOE_TEST_SIZE_MB=1
+TAHOE_WEB_URL="http://your.server.hostname.or.ip:3456/"
+FILEMANAGER_URL="http://your.server.hostname.or.ip:8080/web/client/login"
 EOF
 
   echo "Created $env_file"

@@ -189,3 +189,41 @@ Workaround applied:
 - treat the transfer as valid only if the downloaded file exists and the final SHA-256 hash matches
 
 This keeps the test strict on data integrity while avoiding false negatives caused by session shutdown behavior.
+
+## Confirmed issue: Tahoe web UI is loopback-only by default
+
+Status: fixed in `docker/entrypoint.sh` and gateway deployment
+
+Tahoe-LAFS `create-node` writes `[node] web.port = tcp:3456:interface=127.0.0.1` by default. That is fine for a single host, but in this test cluster it made the management UI unreachable from the workstation at `172.20.0.14:3456` even when the gateway itself was healthy.
+
+Fix applied:
+
+- added `TAHOE_WEB_PORT` to the generated config
+- force `web.port = tcp:${TAHOE_WEB_PORT}:interface=0.0.0.0` during node creation
+- verify the management UI from the workstation in `tests/run-test.sh`
+
+Operational result:
+
+- Tahoe management UI is reachable at `http://172.20.0.14:3456/`
+- the path does not depend on `127.0.0.1` or host-level port forwarding
+
+## Integration note: canonical web file manager is SFTPGo over the gateway SFTP layer
+
+Status: implemented in `tests/docker-compose.yml` and `tests/run-test.sh`
+
+The file manager is intentionally separate from the Tahoe gateway process. It is a standalone SFTPGo container on `172.20.0.15` and it talks to the gateway using the same SFTP interface exposed to normal clients:
+
+- Tahoe gateway SFTP endpoint: `172.20.0.14:8022`
+- SFTPGo WebClient: `http://172.20.0.15:8080/web/client/login`
+
+Bootstrap notes:
+
+- SFTPGo is provisioned with a default admin at container startup
+- the test then creates or updates a WebClient user through the official REST API
+- the backend storage for that user is `provider=5` (`SFTP`) with the Tahoe private key injected as a secret
+
+This keeps the architecture honest:
+
+- browser UI uses SFTP
+- CLI uploads use SFTP
+- both hit the same gateway contract
