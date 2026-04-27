@@ -21,7 +21,7 @@ tahoe_hosts_get_field() {
 
 tahoe_hosts_parse() {
   local hosts_file
-  hosts_file="${HOME}/.hosts"
+  hosts_file="${TAHOE_HOSTS_FILE:-${HOME}/.hosts}"
 
   if [ ! -f "$hosts_file" ]; then
     echo "tahoe: hosts file not found: $hosts_file" >&2

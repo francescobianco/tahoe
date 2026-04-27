@@ -128,6 +128,14 @@ echo "Gateway started on $tahoe_name: $CONTAINER"
 EOF
 }
 
+tahoe_remote_get_furl() {
+  cat <<'EOF'
+DATA_DIR="${TAHOE_BASE:-/opt/tahoe}/data/introducer"
+FURL_FILE="$DATA_DIR/private/introducer.furl"
+[ -f "$FURL_FILE" ] && cat "$FURL_FILE"
+EOF
+}
+
 tahoe_remote_logs() {
   local role
   role="$1"

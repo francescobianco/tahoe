@@ -12,8 +12,8 @@ set -e
 # @package: tahoe
 # @file_type: build-entrypoint
 # @build_type: bin
-# @build_with: Mush v0.2.0 (2026-03-21 develop)
-# @build_date: 2026-04-26T20:31:46Z
+# @build_with: Mush v0.2.0 (2026-03-22 develop)
+# @build_date: 2026-04-27T14:58:05Z
 
 # @section_code: SC005
 # @section_name: functions
@@ -77,7 +77,7 @@ tahoe_build_env_inject() {
     val="${line#*=}"
 
     if ! tahoe_is_identifier "$key"; then
-      echo "tahoe: invalid env key: $key" >&2
+      echo "tahoe: invalid config key: $key" >&2
       return 1
     fi
 
@@ -108,57 +108,16 @@ tahoe_build_env_inject() {
   fi
 }
 
-tahoe_parse_env_file() {
-  local first_arg
-  first_arg="$1"
-  local second_arg
-  second_arg="$2"
+tahoe_config_set() {
+  local config_file="$1"
+  local key="$2"
+  local val="$3"
 
-  if [ "$first_arg" = "--env-file" ]; then
-    if [ -z "$second_arg" ]; then
-      echo "tahoe: --env-file requires a file" >&2
-      return 1
-    fi
-    printf '%s\n' "$second_arg"
-    return 0
+  if grep -q "^${key}=" "$config_file"; then
+    sed -i "s|^${key}=.*|${key}=\"${val}\"|" "$config_file"
+  else
+    printf '%s="%s"\n' "$key" "$val" >> "$config_file"
   fi
-
-  if [ -n "$first_arg" ]; then
-    echo "tahoe: unexpected argument: $first_arg" >&2
-    return 1
-  fi
-
-  printf '%s\n' ".tahoe"
-}
-
-tahoe_parse_logs_env_file() {
-  local first_arg
-  first_arg="$1"
-  local second_arg
-  second_arg="$2"
-  local third_arg
-  third_arg="$3"
-
-  if [ "$first_arg" != "--logs" ]; then
-    return 1
-  fi
-
-  tahoe_parse_env_file "$second_arg" "$third_arg"
-}
-
-tahoe_parse_test_env_file() {
-  local first_arg
-  first_arg="$1"
-  local second_arg
-  second_arg="$2"
-  local third_arg
-  third_arg="$3"
-
-  if [ "$first_arg" != "--test" ]; then
-    return 1
-  fi
-
-  tahoe_parse_env_file "$second_arg" "$third_arg"
 }
 
 tahoe_load_env_file() {
@@ -166,7 +125,7 @@ tahoe_load_env_file() {
   env_file="$1"
 
   if [ ! -f "$env_file" ]; then
-    echo "tahoe: env file not found: $env_file" >&2
+    echo "tahoe: config file not found: $env_file" >&2
     return 1
   fi
 
@@ -203,7 +162,7 @@ tahoe_hosts_get_field() {
 
 tahoe_hosts_parse() {
   local hosts_file
-  hosts_file="${HOME}/.hosts"
+  hosts_file="${TAHOE_HOSTS_FILE:-${HOME}/.hosts}"
 
   if [ ! -f "$hosts_file" ]; then
     echo "tahoe: hosts file not found: $hosts_file" >&2
@@ -287,6 +246,7 @@ tahoe_require_command() {
   fi
 }
 
+# tty_mode: "tty" (interactive, default) | "notty" (capture-safe, no pseudo-tty)
 tahoe_runner_exec() {
   local host_line
   host_line="$1"
@@ -294,6 +254,8 @@ tahoe_runner_exec() {
   script_file="$2"
   local env_file
   env_file="$3"
+  local tty_mode
+  tty_mode="${4:-tty}"
 
   local host
   host=$(tahoe_hosts_get_field "$host_line" "host" || true)
@@ -328,11 +290,20 @@ tahoe_runner_exec() {
   local payload
   payload=$({ printf '%s\n' "$host_inject" "$env_inject"; cat "$script_file"; } | base64 -w0)
 
-  if [ -n "$password" ]; then
-    tahoe_require_command sshpass || return 1
-    sshpass -p "$password" ssh -tt $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+  if [ "$tty_mode" = "notty" ]; then
+    if [ -n "$password" ]; then
+      tahoe_require_command sshpass || return 1
+      sshpass -p "$password" ssh $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    else
+      ssh $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    fi
   else
-    ssh -tt $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    if [ -n "$password" ]; then
+      tahoe_require_command sshpass || return 1
+      sshpass -p "$password" ssh -tt $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    else
+      ssh -tt $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    fi
   fi
 }
 
@@ -345,7 +316,7 @@ tahoe_run_host() {
   script_file="$3"
 
   if [ ! -f "$env_file" ]; then
-    echo "tahoe: env file not found: $env_file" >&2
+    echo "tahoe: config file not found: $env_file" >&2
     return 1
   fi
 
@@ -353,6 +324,25 @@ tahoe_run_host() {
   host_line=$(tahoe_hosts_find "$host_name") || return 1
 
   tahoe_runner_exec "$host_line" "$script_file" "$env_file"
+}
+
+tahoe_run_host_capture() {
+  local host_name
+  host_name="$1"
+  local env_file
+  env_file="$2"
+  local script_file
+  script_file="$3"
+
+  if [ ! -f "$env_file" ]; then
+    echo "tahoe: config file not found: $env_file" >&2
+    return 1
+  fi
+
+  local host_line
+  host_line=$(tahoe_hosts_find "$host_name") || return 1
+
+  tahoe_runner_exec "$host_line" "$script_file" "$env_file" "notty"
 }
 
 # @section_code: SC007
@@ -490,6 +480,14 @@ echo "Gateway started on $tahoe_name: $CONTAINER"
 EOF
 }
 
+tahoe_remote_get_furl() {
+  cat <<'EOF'
+DATA_DIR="${TAHOE_BASE:-/opt/tahoe}/data/introducer"
+FURL_FILE="$DATA_DIR/private/introducer.furl"
+[ -f "$FURL_FILE" ] && cat "$FURL_FILE"
+EOF
+}
+
 tahoe_remote_logs() {
   local role
   role="$1"
@@ -531,30 +529,59 @@ EOF
 # @source_index: 6
 # @source_file: src/dispatch.sh
 # @portion_type: module
+tahoe_save_furl() {
+  local host_name="$1"
+  local config_file="$2"
+
+  local tmp_script
+  tmp_script=$(mktemp /tmp/tahoe.XXXXXX)
+  tahoe_remote_get_furl > "$tmp_script"
+
+  local furl
+  furl=$(tahoe_run_host_capture "$host_name" "$config_file" "$tmp_script" 2>/dev/null | tr -d '\r\n ')
+  rm -f "$tmp_script"
+
+  if [ -z "$furl" ] || [ "${furl#pb://}" = "$furl" ]; then
+    echo "tahoe: warning: could not read FURL from introducer" >&2
+    return 0
+  fi
+
+  tahoe_config_set "$config_file" "INTRODUCER_FURL" "$furl"
+  echo "tahoe: INTRODUCER_FURL saved to $config_file"
+}
+
 tahoe_with_remote_script() {
   local command_name
   command_name="$1"
   local host_name
   host_name="$2"
-  local env_file
-  env_file="$3"
+  local config_file
+  config_file="$3"
   local tmp_script
   tmp_script=$(mktemp /tmp/tahoe.XXXXXX)
 
   case "$command_name" in
-    introducer) tahoe_remote_introducer > "$tmp_script" ;;
-    node) tahoe_remote_node > "$tmp_script" ;;
-    gateway) tahoe_remote_gateway > "$tmp_script" ;;
+    introducer)      tahoe_remote_introducer > "$tmp_script" ;;
+    node)            tahoe_remote_node > "$tmp_script" ;;
+    gateway)         tahoe_remote_gateway > "$tmp_script" ;;
     introducer-logs) tahoe_remote_logs "introducer" > "$tmp_script" ;;
-    node-logs) tahoe_remote_logs "node" > "$tmp_script" ;;
-    gateway-logs) tahoe_remote_logs "gateway" > "$tmp_script" ;;
-    *) echo "tahoe: unknown remote command: $command_name" >&2; rm -f "$tmp_script"; return 1 ;;
+    node-logs)       tahoe_remote_logs "node" > "$tmp_script" ;;
+    gateway-logs)    tahoe_remote_logs "gateway" > "$tmp_script" ;;
+    *)
+      echo "tahoe: unknown remote command: $command_name" >&2
+      rm -f "$tmp_script"
+      return 1
+      ;;
   esac
 
-  tahoe_run_host "$host_name" "$env_file" "$tmp_script"
-  local exit_code
-  exit_code=$?
+  tahoe_run_host "$host_name" "$config_file" "$tmp_script"
+  local exit_code=$?
   rm -f "$tmp_script"
+
+  if [ "$exit_code" -eq 0 ] && [ "$command_name" = "introducer" ]; then
+    tahoe_save_furl "$host_name" "$config_file"
+  fi
+
   return "$exit_code"
 }
 
@@ -702,28 +729,50 @@ EOF
 tahoe_usage() {
   cat >&2 <<'EOF'
 Usage:
-  tahoe init
-  tahoe introducer <host> [--env-file <file>]
-  tahoe node <host> [--env-file <file>]
-  tahoe gateway <host> [--env-file <file>]
-  tahoe introducer <host> --logs [--env-file <file>]
-  tahoe node <host> --logs [--env-file <file>]
-  tahoe gateway <host> --logs [--env-file <file>]
-  tahoe gateway <host> --test [--env-file <file>]
-  tahoe hosts
+  tahoe [--config <file>] [--hosts <file>] init
+  tahoe [--config <file>] [--hosts <file>] introducer <host>
+  tahoe [--config <file>] [--hosts <file>] node <host>
+  tahoe [--config <file>] [--hosts <file>] gateway <host>
+  tahoe [--config <file>] [--hosts <file>] introducer <host> --logs
+  tahoe [--config <file>] [--hosts <file>] node <host> --logs
+  tahoe [--config <file>] [--hosts <file>] gateway <host> --logs
+  tahoe [--config <file>] [--hosts <file>] gateway <host> --test
+  tahoe [--config <file>] [--hosts <file>] hosts
+
+Options:
+  --config    Cluster config file (default: .tahoe)
+  --hosts     Hosts file (default: ~/.hosts)
 
 Commands:
   init        Create .tahoe, .tahoe.pem and .tahoe.key locally
-  introducer  Run a Tahoe introducer container on the selected host
-  node        Run a storage-only Tahoe node container on the selected host
-  gateway     Run an SFTP gateway container on the selected host
-  hosts       List hosts from ~/.hosts
+  introducer  Deploy introducer; FURL is auto-saved to the config file
+  node        Deploy a storage node container
+  gateway     Deploy an SFTP gateway container
+  hosts       List hosts from the hosts file
 EOF
 }
 
 tahoe_cli_main() {
-  local command_name
-  command_name="$1"
+  while true; do
+    case "${1:-}" in
+      --config)
+        [ -n "${2:-}" ] || { echo "tahoe: --config requires a file" >&2; return 1; }
+        TAHOE_CONFIG_FILE="$2"
+        shift 2
+        ;;
+      --hosts)
+        [ -n "${2:-}" ] || { echo "tahoe: --hosts requires a file" >&2; return 1; }
+        export TAHOE_HOSTS_FILE="$2"
+        shift 2
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  local config_file="${TAHOE_CONFIG_FILE:-.tahoe}"
+  local command_name="${1:-}"
 
   case "$command_name" in
     ""|-h|--help)
@@ -735,32 +784,42 @@ tahoe_cli_main() {
       return $?
       ;;
     init)
-      if [ -n "$2" ]; then
-        echo "tahoe: unexpected argument: $2" >&2
-        tahoe_usage
-        return 1
-      fi
       tahoe_init
       return $?
       ;;
     introducer|node|gateway)
-      local host_name
-      host_name="$2"
+      local host_name="${2:-}"
       if [ -z "$host_name" ]; then
         echo "tahoe: missing host name" >&2
         tahoe_usage
         return 1
       fi
-
-      local env_file
-      if [ "$command_name" = "gateway" ] && env_file=$(tahoe_parse_test_env_file "$3" "$4" "$5"); then
-        tahoe_gateway_test "$host_name" "$env_file"
-      elif env_file=$(tahoe_parse_logs_env_file "$3" "$4" "$5"); then
-        tahoe_with_remote_script "${command_name}-logs" "$host_name" "$env_file"
-      else
-        env_file=$(tahoe_parse_env_file "$3" "$4") || return 1
-        tahoe_with_remote_script "$command_name" "$host_name" "$env_file"
+      if [ ! -f "$config_file" ]; then
+        echo "tahoe: config file not found: $config_file" >&2
+        echo "tahoe: run 'tahoe init' to create one" >&2
+        return 1
       fi
+      local modifier="${3:-}"
+      case "$modifier" in
+        --logs)
+          tahoe_with_remote_script "${command_name}-logs" "$host_name" "$config_file"
+          ;;
+        --test)
+          if [ "$command_name" != "gateway" ]; then
+            echo "tahoe: --test is only valid for gateway" >&2
+            return 1
+          fi
+          tahoe_gateway_test "$host_name" "$config_file"
+          ;;
+        "")
+          tahoe_with_remote_script "$command_name" "$host_name" "$config_file"
+          ;;
+        *)
+          echo "tahoe: unknown option: $modifier" >&2
+          tahoe_usage
+          return 1
+          ;;
+      esac
       return $?
       ;;
     *)

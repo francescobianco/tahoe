@@ -1,0 +1,27 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server \
+    sshpass \
+    curl \
+    ca-certificates \
+    iptables \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Docker Engine
+RUN curl -fsSL https://get.docker.com | sh
+
+# Allow root login with password over SSH
+RUN mkdir -p /var/run/sshd /root/.ssh && \
+    echo 'root:tahoe' | chpasswd && \
+    sed -i 's/#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    echo 'UseDNS no' >> /etc/ssh/sshd_config
+
+EXPOSE 22
+
+COPY entrypoint-host.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

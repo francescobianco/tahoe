@@ -8,6 +8,7 @@ tahoe_require_command() {
   fi
 }
 
+# tty_mode: "tty" (interactive, default) | "notty" (capture-safe, no pseudo-tty)
 tahoe_runner_exec() {
   local host_line
   host_line="$1"
@@ -15,6 +16,8 @@ tahoe_runner_exec() {
   script_file="$2"
   local env_file
   env_file="$3"
+  local tty_mode
+  tty_mode="${4:-tty}"
 
   local host
   host=$(tahoe_hosts_get_field "$host_line" "host" || true)
@@ -49,11 +52,20 @@ tahoe_runner_exec() {
   local payload
   payload=$({ printf '%s\n' "$host_inject" "$env_inject"; cat "$script_file"; } | base64 -w0)
 
-  if [ -n "$password" ]; then
-    tahoe_require_command sshpass || return 1
-    sshpass -p "$password" ssh -tt $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+  if [ "$tty_mode" = "notty" ]; then
+    if [ -n "$password" ]; then
+      tahoe_require_command sshpass || return 1
+      sshpass -p "$password" ssh $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    else
+      ssh $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    fi
   else
-    ssh -tt $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    if [ -n "$password" ]; then
+      tahoe_require_command sshpass || return 1
+      sshpass -p "$password" ssh -tt $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    else
+      ssh -tt $ssh_opts "${user}@${host}" "echo ${payload} | base64 -d | bash"
+    fi
   fi
 }
 
@@ -66,7 +78,7 @@ tahoe_run_host() {
   script_file="$3"
 
   if [ ! -f "$env_file" ]; then
-    echo "tahoe: env file not found: $env_file" >&2
+    echo "tahoe: config file not found: $env_file" >&2
     return 1
   fi
 
@@ -74,4 +86,23 @@ tahoe_run_host() {
   host_line=$(tahoe_hosts_find "$host_name") || return 1
 
   tahoe_runner_exec "$host_line" "$script_file" "$env_file"
+}
+
+tahoe_run_host_capture() {
+  local host_name
+  host_name="$1"
+  local env_file
+  env_file="$2"
+  local script_file
+  script_file="$3"
+
+  if [ ! -f "$env_file" ]; then
+    echo "tahoe: config file not found: $env_file" >&2
+    return 1
+  fi
+
+  local host_line
+  host_line=$(tahoe_hosts_find "$host_name") || return 1
+
+  tahoe_runner_exec "$host_line" "$script_file" "$env_file" "notty"
 }

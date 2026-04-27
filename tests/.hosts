@@ -1,0 +1,5 @@
+name=introducer-host host=172.20.0.10 user=root password=tahoe
+name=node1-host      host=172.20.0.11 user=root password=tahoe
+name=node2-host      host=172.20.0.12 user=root password=tahoe
+name=node3-host      host=172.20.0.13 user=root password=tahoe
+name=gateway-host    host=172.20.0.14 user=root password=tahoe

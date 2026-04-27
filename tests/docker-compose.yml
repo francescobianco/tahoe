@@ -1,0 +1,94 @@
+# Test cluster: 1 introducer + 3 storage nodes + 1 gateway
+# Each service is a privileged Debian machine running dockerd (DinD).
+# The `tahoe` CLI connects via SSH and launches Tahoe-LAFS containers exactly
+# as it would against real remote servers.
+#
+# Fixed network: 172.20.0.0/24
+#   introducer-host  172.20.0.10
+#   node1-host       172.20.0.11
+#   node2-host       172.20.0.12
+#   node3-host       172.20.0.13
+#   gateway-host     172.20.0.14  (SFTP :8022 forwarded to host)
+#
+# Run the full test:
+#   cd tests && ./run-test.sh
+
+services:
+
+  introducer-host:
+    build:
+      context: .
+      dockerfile: Dockerfile.host
+    privileged: true
+    hostname: introducer-host
+    networks:
+      tahoe-net:
+        ipv4_address: 172.20.0.10
+    volumes:
+      - introducer-data:/opt/tahoe
+
+  node1-host:
+    build:
+      context: .
+      dockerfile: Dockerfile.host
+    privileged: true
+    hostname: node1-host
+    networks:
+      tahoe-net:
+        ipv4_address: 172.20.0.11
+    volumes:
+      - node1-data:/opt/tahoe
+
+  node2-host:
+    build:
+      context: .
+      dockerfile: Dockerfile.host
+    privileged: true
+    hostname: node2-host
+    networks:
+      tahoe-net:
+        ipv4_address: 172.20.0.12
+    volumes:
+      - node2-data:/opt/tahoe
+
+  node3-host:
+    build:
+      context: .
+      dockerfile: Dockerfile.host
+    privileged: true
+    hostname: node3-host
+    networks:
+      tahoe-net:
+        ipv4_address: 172.20.0.13
+    volumes:
+      - node3-data:/opt/tahoe
+
+  gateway-host:
+    build:
+      context: .
+      dockerfile: Dockerfile.host
+    privileged: true
+    hostname: gateway-host
+    networks:
+      tahoe-net:
+        ipv4_address: 172.20.0.14
+    ports:
+      - "8022:8022"
+    volumes:
+      - gateway-data:/opt/tahoe
+
+networks:
+  tahoe-net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/24
+          gateway: 172.20.0.1
+
+volumes:
+  introducer-data:
+  node1-data:
+  node2-data:
+  node3-data:
+  gateway-data:

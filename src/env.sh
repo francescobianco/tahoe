@@ -27,7 +27,7 @@ tahoe_build_env_inject() {
     val="${line#*=}"
 
     if ! tahoe_is_identifier "$key"; then
-      echo "tahoe: invalid env key: $key" >&2
+      echo "tahoe: invalid config key: $key" >&2
       return 1
     fi
 
@@ -58,57 +58,16 @@ tahoe_build_env_inject() {
   fi
 }
 
-tahoe_parse_env_file() {
-  local first_arg
-  first_arg="$1"
-  local second_arg
-  second_arg="$2"
+tahoe_config_set() {
+  local config_file="$1"
+  local key="$2"
+  local val="$3"
 
-  if [ "$first_arg" = "--env-file" ]; then
-    if [ -z "$second_arg" ]; then
-      echo "tahoe: --env-file requires a file" >&2
-      return 1
-    fi
-    printf '%s\n' "$second_arg"
-    return 0
+  if grep -q "^${key}=" "$config_file"; then
+    sed -i "s|^${key}=.*|${key}=\"${val}\"|" "$config_file"
+  else
+    printf '%s="%s"\n' "$key" "$val" >> "$config_file"
   fi
-
-  if [ -n "$first_arg" ]; then
-    echo "tahoe: unexpected argument: $first_arg" >&2
-    return 1
-  fi
-
-  printf '%s\n' ".tahoe"
-}
-
-tahoe_parse_logs_env_file() {
-  local first_arg
-  first_arg="$1"
-  local second_arg
-  second_arg="$2"
-  local third_arg
-  third_arg="$3"
-
-  if [ "$first_arg" != "--logs" ]; then
-    return 1
-  fi
-
-  tahoe_parse_env_file "$second_arg" "$third_arg"
-}
-
-tahoe_parse_test_env_file() {
-  local first_arg
-  first_arg="$1"
-  local second_arg
-  second_arg="$2"
-  local third_arg
-  third_arg="$3"
-
-  if [ "$first_arg" != "--test" ]; then
-    return 1
-  fi
-
-  tahoe_parse_env_file "$second_arg" "$third_arg"
 }
 
 tahoe_load_env_file() {
@@ -116,7 +75,7 @@ tahoe_load_env_file() {
   env_file="$1"
 
   if [ ! -f "$env_file" ]; then
-    echo "tahoe: env file not found: $env_file" >&2
+    echo "tahoe: config file not found: $env_file" >&2
     return 1
   fi
 

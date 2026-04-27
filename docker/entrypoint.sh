@@ -202,25 +202,8 @@ case "$NODE_TYPE" in
         exec tahoe run --allow-stdin-close "$NODE_DIR"
         ;;
 
-    combined)
-        if [ ! -f "$NODE_DIR/tahoe.cfg" ]; then
-            NODE_PORT="${NODE_PORT:-3457}"
-            NODE_HOSTNAME="${TAHOE_NODE_HOSTNAME:-${INTRODUCER_HOSTNAME:-127.0.0.1}}"
-            tahoe create-node \
-                --port="tcp:${NODE_PORT}" \
-                --location="tcp:${NODE_HOSTNAME}:${NODE_PORT}" \
-                "$NODE_DIR"
-            configure_tahoe_cfg \
-                "$INTRODUCER_FURL" "$SHARES_NEEDED" "$SHARES_TOTAL" "$SHARES_HAPPY" \
-                "true" "$STORAGE_RESERVED_SPACE"
-        fi
-        ensure_sftp_config
-        rm -f "$NODE_DIR/running.process"
-        exec tahoe run --allow-stdin-close "$NODE_DIR"
-        ;;
-
     *)
-        echo "Usage: $0 [introducer|node|storage|gateway|combined]"
+        echo "Usage: $0 [introducer|node|storage|gateway]"
         exit 1
         ;;
 esac
